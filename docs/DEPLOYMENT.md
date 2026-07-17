@@ -225,8 +225,26 @@ you hit something similar:
   `NEXT_PUBLIC_BRIDGE_ADDRESS`, `NEXT_PUBLIC_USDC_ADDRESS`,
   `NEXT_PUBLIC_USDC_DECIMALS`, `NEXT_PUBLIC_L1_CHAIN_ID`,
   `NEXT_PUBLIC_L1_RPC_URL`, `NEXT_PUBLIC_GATEWAY_URL` (your
-  `vampchains-rpc-gateway.fly.dev` URL), `DATABASE_URL` (Neon).
+  `vampchains-rpc-gateway.fly.dev` URL), `DATABASE_URL` (Neon). Add the
+  `NEXT_PUBLIC_*` ones as regular (non-sensitive) variables — Vercel's
+  "Sensitive" flag doesn't affect build-time availability, but there's no
+  reason to use it for values that are, by definition (the `NEXT_PUBLIC_`
+  prefix), going to be readable in the public client bundle anyway.
 - Deploy.
+- **If a page built from client components ("use client") ever shows a
+  `NEXT_PUBLIC_*`-derived value as missing/zero while server-rendered pages
+  show it fine**, check for a *dynamic* `process.env[name]` lookup
+  somewhere in the code path first, before suspecting Vercel config. Next.js
+  inlines `NEXT_PUBLIC_` vars into client bundles via static text
+  replacement of a literal `process.env.NEXT_PUBLIC_X` expression at build
+  time — there's no real env object shipped to the browser. A computed
+  lookup can never be statically resolved, so it silently evaluates to
+  `undefined` forever, regardless of what's actually configured. This
+  shipped to production once already (`web/src/lib/contracts.ts`'s
+  `envAddress` helper) — confirmed by literally fetching the deployed JS
+  chunks and grepping for the expected address before and after the fix,
+  since neither the build log nor a fresh `--force` deploy alone showed
+  anything was wrong.
 
 ## Cost notes
 
