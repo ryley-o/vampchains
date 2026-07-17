@@ -1,0 +1,14 @@
+# fly deploy --config infra/relayer/fly.toml --dockerfile infra/relayer/Dockerfile
+app = "vampchains-relayer"
+primary_region = "iad"
+
+[build]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+# No [[services]] block — this process makes outbound calls only (to the L1
+# RPC and to each vampchain's .internal RPC), it doesn't serve anything.
+# Secrets (RELAYER_PRIVATE_KEY, DATABASE_URL, etc) are set via `fly secrets
+# set`, not committed here — see docs/DEPLOYMENT.md.

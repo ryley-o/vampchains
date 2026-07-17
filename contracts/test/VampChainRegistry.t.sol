@@ -1,0 +1,499 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {Test} from "forge-std/Test.sol";
+import {VampChainRegistry} from "../src/VampChainRegistry.sol";
+import {MockERC20} from "./mocks/MockERC20.sol";
+import {MaliciousReentrantToken} from "./mocks/MaliciousReentrantToken.sol";
+
+contract VampChainRegistryTest is Test {
+    VampChainRegistry internal registry;
+    MockERC20 internal usdc;
+
+    address internal owner = makeAddr("owner");
+    address internal treasury = makeAddr("treasury");
+    address internal alice = makeAddr("alice");
+    address internal bob = makeAddr("bob");
+
+    uint256 internal constant ANNUAL_FEE = 1_000e6; // $1,000/yr, USDC has 6 decimals
+    uint256 internal constant YEAR = 365 days;
+
+    function setUp() public {
+        usdc = new MockERC20("USD Coin", "USDC", 6);
+        registry = new VampChainRegistry(address(usdc), ANNUAL_FEE, treasury, owner);
+
+        usdc.mint(alice, 1_000_000e6);
+        usdc.mint(bob, 1_000_000e6);
+        vm.prank(alice);
+        usdc.approve(address(registry), type(uint256).max);
+        vm.prank(bob);
+        usdc.approve(address(registry), type(uint256).max);
+    }
+
+    function _memeToken() internal returns (MockERC20) {
+        return new MockERC20("Doge Base", "DOGB", 18);
+    }
+
+    // ---------------------------------------------------------------------
+    // constructor
+    // ---------------------------------------------------------------------
+
+    function test_constructor_revertsOnZeroUsdc() public {
+        vm.expectRevert(VampChainRegistry.ZeroAddress.selector);
+        new VampChainRegistry(address(0), ANNUAL_FEE, treasury, owner);
+    }
+
+    function test_constructor_revertsOnZeroOwner() public {
+        vm.expectRevert(VampChainRegistry.ZeroAddress.selector);
+        new VampChainRegistry(address(usdc), ANNUAL_FEE, treasury, address(0));
+    }
+
+    function test_constructor_defaultsTreasuryToOwnerIfZero() public {
+        VampChainRegistry r = new VampChainRegistry(address(usdc), ANNUAL_FEE, address(0), owner);
+        assertEq(r.protocolTreasury(), owner);
+    }
+
+    // ---------------------------------------------------------------------
+    // createChain
+    // ---------------------------------------------------------------------
+
+    function test_createChain_happyPath() public {
+        MockERC20 meme = _memeToken();
+        uint256 aliceBalBefore = usdc.balanceOf(alice);
+
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        assertEq(chainId, 1);
+        assertEq(registry.nextChainId(), 2);
+        assertEq(registry.activeChainByToken(address(meme)), 1);
+        assertEq(usdc.balanceOf(alice), aliceBalBefore - ANNUAL_FEE);
+        assertEq(usdc.balanceOf(address(registry)), ANNUAL_FEE);
+
+        VampChainRegistry.VampChain memory c = registry.getChain(1);
+        assertEq(c.baseToken, address(meme));
+        assertEq(c.creator, alice);
+        assertEq(c.name, "Dogeblock");
+        assertEq(c.symbol, "DOGB");
+        assertEq(c.fundingBalance, ANNUAL_FEE);
+        assertEq(c.annualFeeUSDC, ANNUAL_FEE);
+        assertTrue(c.active);
+        assertEq(c.createdAt, block.timestamp);
+        assertEq(c.lastAccrualAt, block.timestamp);
+
+        assertTrue(registry.isActive(1));
+        assertEq(registry.remainingRuntime(1), YEAR);
+    }
+
+    function test_createChain_emitsEvent() public {
+        MockERC20 meme = _memeToken();
+        vm.expectEmit(true, true, true, true);
+        emit VampChainRegistry.ChainCreated(1, address(meme), alice, "Dogeblock", "DOGB", ANNUAL_FEE, ANNUAL_FEE);
+        vm.prank(alice);
+        registry.createChain(address(meme), "Dogeblock", "DOGB");
+    }
+
+    function test_createChain_zeroFeeChainNeedsNoTransfer() public {
+        vm.prank(owner);
+        registry.setDefaultAnnualFee(0);
+
+        MockERC20 meme = _memeToken();
+        uint256 aliceBalBefore = usdc.balanceOf(alice);
+
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Free Chain", "FREE");
+
+        assertEq(usdc.balanceOf(alice), aliceBalBefore);
+        assertEq(registry.remainingRuntime(chainId), type(uint256).max);
+        assertTrue(registry.isActive(chainId));
+    }
+
+    function test_createChain_revertsOnZeroToken() public {
+        vm.expectRevert(VampChainRegistry.InvalidToken.selector);
+        vm.prank(alice);
+        registry.createChain(address(0), "x", "X");
+    }
+
+    function test_createChain_revertsIfBaseTokenIsUsdc() public {
+        vm.expectRevert(VampChainRegistry.InvalidToken.selector);
+        vm.prank(alice);
+        registry.createChain(address(usdc), "x", "X");
+    }
+
+    function test_createChain_revertsOnEmptyName() public {
+        MockERC20 meme = _memeToken();
+        vm.expectRevert(VampChainRegistry.InvalidLabel.selector);
+        vm.prank(alice);
+        registry.createChain(address(meme), "", "X");
+    }
+
+    function test_createChain_revertsOnOversizedName() public {
+        MockERC20 meme = _memeToken();
+        string memory tooLong = "this name is way way way way way way way too long for a chain name";
+        assertGt(bytes(tooLong).length, 64);
+        vm.expectRevert(VampChainRegistry.InvalidLabel.selector);
+        vm.prank(alice);
+        registry.createChain(address(meme), tooLong, "X");
+    }
+
+    function test_createChain_revertsOnOversizedSymbol() public {
+        MockERC20 meme = _memeToken();
+        vm.expectRevert(VampChainRegistry.InvalidLabel.selector);
+        vm.prank(alice);
+        registry.createChain(address(meme), "name", "WAYTOOLONGSYMBOLXX");
+    }
+
+    function test_createChain_revertsOnDuplicateActiveToken() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        registry.createChain(address(meme), "First", "F");
+
+        vm.expectRevert(VampChainRegistry.TokenAlreadyActive.selector);
+        vm.prank(bob);
+        registry.createChain(address(meme), "Second", "S");
+    }
+
+    function test_createChain_allowsRecreationAfterDeactivation() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "First", "F");
+
+        vm.warp(block.timestamp + YEAR + 1);
+        registry.deactivateIfDepleted(chainId);
+        assertFalse(registry.isActive(chainId));
+
+        vm.prank(bob);
+        uint256 newChainId = registry.createChain(address(meme), "Second", "S");
+        assertEq(newChainId, chainId + 1);
+        assertTrue(registry.isActive(newChainId));
+    }
+
+    function test_createChain_revertsOnNonErc20Token() public {
+        vm.expectRevert();
+        vm.prank(alice);
+        registry.createChain(address(0xdead), "x", "X");
+    }
+
+    // ---------------------------------------------------------------------
+    // topUp
+    // ---------------------------------------------------------------------
+
+    function test_topUp_happyPath() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.prank(bob);
+        registry.topUp(chainId, 500e6);
+
+        VampChainRegistry.VampChain memory c = registry.getChain(chainId);
+        assertEq(c.fundingBalance, ANNUAL_FEE + 500e6);
+    }
+
+    function test_topUp_extendsRuntimeByExactAmount() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        uint256 before = registry.remainingRuntime(chainId);
+        vm.prank(bob);
+        registry.topUp(chainId, ANNUAL_FEE); // one more year's worth
+        uint256 afterRuntime = registry.remainingRuntime(chainId);
+
+        assertEq(afterRuntime, before + YEAR);
+    }
+
+    function test_topUp_revertsOnZeroAmount() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.expectRevert(VampChainRegistry.ZeroAmount.selector);
+        vm.prank(bob);
+        registry.topUp(chainId, 0);
+    }
+
+    function test_topUp_revertsOnUnknownChain() public {
+        vm.expectRevert(VampChainRegistry.ChainNotFound.selector);
+        registry.topUp(999, 1e6);
+    }
+
+    function test_topUp_revertsOnInactiveChain() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+        vm.warp(block.timestamp + YEAR + 1);
+        registry.deactivateIfDepleted(chainId);
+
+        vm.expectRevert(VampChainRegistry.ChainNotActive.selector);
+        vm.prank(bob);
+        registry.topUp(chainId, 1e6);
+    }
+
+    // ---------------------------------------------------------------------
+    // accrual / earned / remainingRuntime
+    // ---------------------------------------------------------------------
+
+    function test_earned_zeroImmediatelyAfterCreation() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+        assertEq(registry.earned(chainId), 0);
+    }
+
+    function test_earned_linearAccrual() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.warp(block.timestamp + YEAR / 2);
+        assertApproxEqAbs(registry.earned(chainId), ANNUAL_FEE / 2, 1);
+    }
+
+    function test_earned_capsAtFundingBalance() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.warp(block.timestamp + YEAR * 5);
+        assertEq(registry.earned(chainId), ANNUAL_FEE);
+    }
+
+    function test_remainingRuntime_fullAtCreation() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+        assertEq(registry.remainingRuntime(chainId), YEAR);
+    }
+
+    function test_remainingRuntime_countsDown() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.warp(block.timestamp + 10 days);
+        assertEq(registry.remainingRuntime(chainId), YEAR - 10 days);
+    }
+
+    function test_remainingRuntime_zeroAfterFullYear() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.warp(block.timestamp + YEAR);
+        assertEq(registry.remainingRuntime(chainId), 0);
+        assertFalse(registry.isActive(chainId));
+    }
+
+    function testFuzz_remainingRuntime_neverExceedsFundingRuntime(uint32 warpSeconds, uint96 topUpAmount) public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.assume(topUpAmount < 1_000_000_000e6);
+        usdc.mint(bob, topUpAmount);
+        vm.prank(bob);
+        usdc.approve(address(registry), topUpAmount);
+        if (topUpAmount > 0) {
+            vm.prank(bob);
+            registry.topUp(chainId, topUpAmount);
+        }
+
+        vm.warp(block.timestamp + warpSeconds);
+        uint256 runtime = registry.remainingRuntime(chainId);
+        uint256 totalRuntimeBudget = ((uint256(ANNUAL_FEE) + topUpAmount) * YEAR) / ANNUAL_FEE;
+        assertLe(runtime, totalRuntimeBudget);
+    }
+
+    // ---------------------------------------------------------------------
+    // withdrawEarned / deactivateIfDepleted
+    // ---------------------------------------------------------------------
+
+    function test_withdrawEarned_onlyOwner() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+        vm.warp(block.timestamp + 1 days);
+
+        vm.expectRevert();
+        vm.prank(alice);
+        registry.withdrawEarned(chainId);
+    }
+
+    function test_withdrawEarned_revertsWhenNothingEarned() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.expectRevert(VampChainRegistry.NothingToWithdraw.selector);
+        vm.prank(owner);
+        registry.withdrawEarned(chainId);
+    }
+
+    function test_withdrawEarned_partial() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.warp(block.timestamp + YEAR / 4);
+        uint256 expected = ANNUAL_FEE / 4;
+
+        vm.prank(owner);
+        uint256 withdrawn = registry.withdrawEarned(chainId);
+
+        assertApproxEqAbs(withdrawn, expected, 1);
+        assertEq(usdc.balanceOf(treasury), withdrawn);
+
+        VampChainRegistry.VampChain memory c = registry.getChain(chainId);
+        assertEq(c.fundingBalance, ANNUAL_FEE - withdrawn);
+        assertEq(c.lastAccrualAt, block.timestamp);
+        assertTrue(c.active);
+    }
+
+    function test_withdrawEarned_doesNotChangeRemainingRuntimeInvariant() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.warp(block.timestamp + 30 days);
+        uint256 runtimeBefore = registry.remainingRuntime(chainId);
+
+        vm.prank(owner);
+        registry.withdrawEarned(chainId);
+
+        uint256 runtimeAfter = registry.remainingRuntime(chainId);
+        assertEq(runtimeAfter, runtimeBefore);
+    }
+
+    function test_withdrawEarned_fullDrainDeactivates() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.warp(block.timestamp + YEAR + 1);
+
+        vm.prank(owner);
+        uint256 withdrawn = registry.withdrawEarned(chainId);
+        assertEq(withdrawn, ANNUAL_FEE);
+
+        VampChainRegistry.VampChain memory c = registry.getChain(chainId);
+        assertEq(c.fundingBalance, 0);
+        assertFalse(c.active);
+        assertEq(registry.activeChainByToken(address(meme)), 0);
+    }
+
+    function test_deactivateIfDepleted_permissionless() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+        vm.warp(block.timestamp + YEAR + 1);
+
+        vm.prank(bob); // anyone can call this, not just owner
+        bool deactivated = registry.deactivateIfDepleted(chainId);
+        assertTrue(deactivated);
+        assertFalse(registry.isActive(chainId));
+    }
+
+    function test_deactivateIfDepleted_falseWhileStillFunded() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        bool deactivated = registry.deactivateIfDepleted(chainId);
+        assertFalse(deactivated);
+        assertTrue(registry.isActive(chainId));
+    }
+
+    function test_deactivateIfDepleted_revertsOnUnknownChain() public {
+        vm.expectRevert(VampChainRegistry.ChainNotFound.selector);
+        registry.deactivateIfDepleted(999);
+    }
+
+    // ---------------------------------------------------------------------
+    // owner admin
+    // ---------------------------------------------------------------------
+
+    function test_setDefaultAnnualFee_onlyOwner() public {
+        vm.expectRevert();
+        vm.prank(alice);
+        registry.setDefaultAnnualFee(1);
+    }
+
+    function test_setDefaultAnnualFee_doesNotAffectExistingChains() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.prank(owner);
+        registry.setDefaultAnnualFee(ANNUAL_FEE * 10);
+
+        VampChainRegistry.VampChain memory c = registry.getChain(chainId);
+        assertEq(c.annualFeeUSDC, ANNUAL_FEE);
+    }
+
+    function test_setProtocolTreasury_onlyOwner() public {
+        vm.expectRevert();
+        vm.prank(alice);
+        registry.setProtocolTreasury(bob);
+    }
+
+    function test_setProtocolTreasury_revertsOnZero() public {
+        vm.expectRevert(VampChainRegistry.ZeroAddress.selector);
+        vm.prank(owner);
+        registry.setProtocolTreasury(address(0));
+    }
+
+    function test_setProtocolTreasury_updatesAndEmits() public {
+        vm.expectEmit(true, true, true, true);
+        emit VampChainRegistry.ProtocolTreasuryUpdated(treasury, bob);
+        vm.prank(owner);
+        registry.setProtocolTreasury(bob);
+        assertEq(registry.protocolTreasury(), bob);
+    }
+
+    function test_chainCount() public {
+        MockERC20 memeA = _memeToken();
+        MockERC20 memeB = _memeToken();
+        assertEq(registry.chainCount(), 0);
+        vm.prank(alice);
+        registry.createChain(address(memeA), "A", "A");
+        assertEq(registry.chainCount(), 1);
+        vm.prank(alice);
+        registry.createChain(address(memeB), "B", "B");
+        assertEq(registry.chainCount(), 2);
+    }
+
+    // ---------------------------------------------------------------------
+    // views on unknown chains
+    // ---------------------------------------------------------------------
+
+    function test_getChain_revertsOnUnknown() public {
+        vm.expectRevert(VampChainRegistry.ChainNotFound.selector);
+        registry.getChain(42);
+    }
+
+    function test_isActive_falseForUnknownChain() public view {
+        assertFalse(registry.isActive(42));
+    }
+
+    // ---------------------------------------------------------------------
+    // reentrancy
+    // ---------------------------------------------------------------------
+
+    function test_createChain_blocksReentrancy() public {
+        MaliciousReentrantToken evilUsdc = new MaliciousReentrantToken();
+        VampChainRegistry evilRegistry = new VampChainRegistry(address(evilUsdc), ANNUAL_FEE, treasury, owner);
+        MockERC20 meme = _memeToken();
+
+        evilUsdc.mint(alice, ANNUAL_FEE * 2);
+        evilUsdc.arm(
+            address(evilRegistry), abi.encodeCall(VampChainRegistry.createChain, (address(meme), "Reentrant", "RE"))
+        );
+
+        vm.prank(alice);
+        evilRegistry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        assertTrue(evilUsdc.callbackAttempted());
+        assertFalse(evilUsdc.callbackSucceeded());
+    }
+}

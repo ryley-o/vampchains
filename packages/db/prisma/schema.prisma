@@ -1,0 +1,134 @@
+// vampchains off-chain index. Source of truth is always the on-chain
+// contracts (VampChainRegistry, VampBridge) — everything here is a cache the
+// indexer/provisioner/relayer keep in sync, never authoritative on its own.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ChainStatus {
+  PENDING_PROVISION // ChainCreated seen on-chain, infra not up yet
+  PROVISIONING // Fly machine being created
+  ACTIVE // node up and serving RPC
+  DEACTIVATING // registry says depleted, teardown in progress
+  DEACTIVATED // torn down, terminal state
+  PROVISION_FAILED // needs human attention
+}
+
+enum FundingEventKind {
+  CREATED
+  TOPUP
+  WITHDRAWAL
+}
+
+/// One row per vampchain, keyed by the registry's on-chain chainId.
+model Chain {
+  id          Int    @id @default(autoincrement())
+  chainId     BigInt @unique // VampChainRegistry chainId
+  evmChainId  BigInt @unique // this vampchain's own EVM chain id
+
+  baseToken         String
+  baseTokenName     String
+  baseTokenSymbol   String
+  baseTokenDecimals Int
+
+  name    String
+  symbol  String
+  creator String
+
+  status     ChainStatus @default(PENDING_PROVISION)
+  flyAppName String?
+  rpcUrl     String? // internal (Fly 6PN) RPC URL, e.g. http://<app>.internal:8545
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deposits      DepositEvent[]
+  withdrawals   WithdrawalEvent[]
+  fundingEvents FundingEvent[]
+
+  @@index([status])
+  @@index([baseToken])
+}
+
+/// L1 VampBridge.Deposited events, and whether the relayer has minted the
+/// corresponding balance on the vampchain yet.
+model DepositEvent {
+  id      Int   @id @default(autoincrement())
+  chain   Chain @relation(fields: [chainDbId], references: [id])
+  chainDbId Int
+  chainId BigInt
+
+  txHash      String
+  logIndex    Int
+  blockNumber BigInt
+  nonce       BigInt
+
+  from      String
+  recipient String
+  amount    String // uint256 as decimal string
+
+  mintedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([txHash, logIndex])
+  @@index([chainId])
+  @@index([mintedAt])
+}
+
+/// Sidechain burns the relayer has observed, and whether the corresponding
+/// L1 VampBridge.release has been executed yet.
+model WithdrawalEvent {
+  id      Int   @id @default(autoincrement())
+  chain   Chain @relation(fields: [chainDbId], references: [id])
+  chainDbId Int
+  chainId BigInt
+
+  sidechainTxHash String @unique
+  sidechainBlock  BigInt
+
+  to     String
+  amount String // uint256 as decimal string
+
+  releaseTxHash String?
+  releasedAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([chainId])
+  @@index([releasedAt])
+}
+
+/// Registry-level funding history (chain creation, top-ups, protocol
+/// withdrawals) — powers the public "funding balance / runway" UI.
+model FundingEvent {
+  id      Int   @id @default(autoincrement())
+  chain   Chain @relation(fields: [chainDbId], references: [id])
+  chainDbId Int
+  chainId BigInt
+
+  kind        FundingEventKind
+  amount      String // uint256 as decimal string
+  actor       String
+  txHash      String
+  blockNumber BigInt
+
+  createdAt DateTime @default(now())
+
+  @@unique([txHash, chainId, kind])
+  @@index([chainId])
+}
+
+/// Last processed block per on-chain watcher, so the indexer/relayer can
+/// resume after a restart without re-scanning from genesis or double-processing.
+model IndexerCursor {
+  id        String   @id // e.g. "registry", "bridge-deposits", "bridge-releases"
+  lastBlock BigInt
+  updatedAt DateTime @updatedAt
+}

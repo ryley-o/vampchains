@@ -1,0 +1,15 @@
+# fly deploy --config infra/provisioner/fly.toml --dockerfile infra/provisioner/Dockerfile
+app = "vampchains-provisioner"
+primary_region = "iad"
+
+[build]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+# PROVISION_BACKEND=fly in production — no docker.sock, no [[services]]
+# block, outbound only (Fly Machines API + L1 RPC). See docs/DEPLOYMENT.md
+# for the FLY_API_TOKEN this process itself needs (a *different* token/scope
+# than whatever deploys this app — this one needs org-level machine-creation
+# permission to provision vampchain apps on your behalf).

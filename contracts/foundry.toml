@@ -1,0 +1,17 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["dependencies"]
+optimizer = true
+optimizer_runs = 1_000_000
+via_ir = false
+
+[soldeer]
+remappings_generate = false
+remappings_version = false
+
+[dependencies]
+solady = "0.0.245"
+forge-std = "1.9.4"
+
+# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

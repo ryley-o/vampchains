@@ -1,0 +1,6 @@
+packages:
+  - "web"
+  - "infra/relayer"
+  - "infra/provisioner"
+  - "infra/rpc-gateway"
+  - "packages/*"

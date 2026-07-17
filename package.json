@@ -1,0 +1,21 @@
+{
+  "name": "vampchains",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "db:generate": "pnpm --filter @vampchains/db run generate",
+    "db:migrate": "pnpm --filter @vampchains/db run migrate",
+    "dev:web": "pnpm --filter @vampchains/web run dev",
+    "dev:relayer": "pnpm --filter @vampchains/relayer run dev",
+    "dev:provisioner": "pnpm --filter @vampchains/provisioner run dev"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "esbuild",
+      "sharp"
+    ]
+  }
+}

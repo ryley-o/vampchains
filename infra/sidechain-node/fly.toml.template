@@ -1,0 +1,34 @@
+# Template for a single vampchain's Fly app. The provisioner (infra/provisioner)
+# generates one of these per chain (substituting __APP_NAME__ / __CHAIN_ID__)
+# and deploys it with `fly deploy --config <generated>.toml --image <image>`.
+# Not meant to be used directly — see infra/provisioner/README.md.
+
+app = "__APP_NAME__"
+primary_region = "iad"
+
+[build]
+  image = "__IMAGE__"
+
+[env]
+  CHAIN_ID = "__CHAIN_ID__"
+  PORT = "8545"
+  STATE_DIR = "/data"
+  STATE_INTERVAL = "30"
+  # BLOCK_TIME left unset: instant-mine on tx, cheapest for a low-traffic meme chain
+
+[mounts]
+  source = "__APP_NAME___data"
+  destination = "/data"
+
+[[services]]
+  internal_port = 8545
+  protocol = "tcp"
+  # No [[services.ports]] with a public handler here on purpose — the
+  # sidechain's RPC is NOT exposed directly to the internet. infra/rpc-gateway
+  # is the only public, method-filtered, rate-limited entrypoint; it (and the
+  # relayer) talk to this app over Fly's private 6PN network
+  # (http://__APP_NAME__.internal:8545).
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

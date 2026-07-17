@@ -1,0 +1,42 @@
+# node
+node_modules/
+.pnpm-store/
+npm-debug.log*
+
+# next.js
+web/.next/
+web/out/
+
+# vercel
+.vercel/
+web/.vercel/
+
+# env — ignore real env files, but keep the .example templates tracked
+.env
+.env.local
+.env*.local
+!.env.example
+!.env.local.example
+
+# foundry
+contracts/cache/
+contracts/out/
+contracts/broadcast/
+contracts/dependencies/
+!contracts/dependencies/.gitkeep
+
+# anvil state / infra data
+infra/**/data/
+infra/**/*.state.json
+
+# prisma
+web/prisma/*.db
+
+# secrets
+.secrets/
+
+# misc
+.DS_Store
+*.log
+dist/
+build/

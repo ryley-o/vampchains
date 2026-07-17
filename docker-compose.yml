@@ -1,0 +1,97 @@
+name: vampchains
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: vampchains
+      POSTGRES_PASSWORD: vampchains
+      POSTGRES_DB: vampchains
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vampchains"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # The "home chain" for local dev — stands in for Base. Reuses the same
+  # anvil-in-Docker image as every vampchain; it's just anvil either way.
+  l1:
+    build: ./infra/sidechain-node
+    image: vampchains-sidechain-node:local
+    environment:
+      CHAIN_ID: "31337"
+      STATE_INTERVAL: "10"
+      # This is the local-dev stand-in for Base, not a real vampchain — it
+      # needs normally-funded test accounts to pay gas. See entrypoint.sh.
+      DEV_ACCOUNT_BALANCE_ETH: "10000"
+    ports:
+      - "8545:8545"
+    volumes:
+      - l1data:/data
+
+  rpc-gateway:
+    build:
+      context: .
+      dockerfile: infra/rpc-gateway/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://vampchains:vampchains@postgres:5432/vampchains
+      PORT: "8080"
+    ports:
+      - "18080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  relayer:
+    build:
+      context: .
+      dockerfile: infra/relayer/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://vampchains:vampchains@postgres:5432/vampchains
+      L1_RPC_URL: http://l1:8545
+      L1_CHAIN_ID: "31337"
+      BRIDGE_ADDRESS: "${BRIDGE_ADDRESS}"
+      RELAYER_PRIVATE_KEY: "${RELAYER_PRIVATE_KEY}"
+      POLL_INTERVAL_MS: "3000"
+      CONFIRMATIONS: "0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      l1:
+        condition: service_started
+
+  provisioner:
+    build:
+      context: .
+      dockerfile: infra/provisioner/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://vampchains:vampchains@postgres:5432/vampchains
+      L1_RPC_URL: http://l1:8545
+      L1_CHAIN_ID: "31337"
+      REGISTRY_ADDRESS: "${REGISTRY_ADDRESS}"
+      PROVISIONER_PRIVATE_KEY: "${PROVISIONER_PRIVATE_KEY}"
+      POLL_INTERVAL_MS: "5000"
+      CONFIRMATIONS: "0"
+      PROVISION_BACKEND: local-docker
+      SIDECHAIN_IMAGE: vampchains-sidechain-node:local
+      DOCKER_NETWORK: vampchains_default
+      LOCAL_HOST_PORT_BASE: "8600"
+    volumes:
+      # Docker-outside-of-docker: the local-docker provisioner backend drives
+      # the *host* Docker daemon to create sibling containers for each
+      # vampchain, so they end up reachable at predictable host ports rather
+      # than nested inside this container's own isolated Docker-in-Docker.
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      l1:
+        condition: service_started
+
+volumes:
+  pgdata:
+  l1data:

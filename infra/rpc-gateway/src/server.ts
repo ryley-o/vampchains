@@ -1,0 +1,123 @@
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { prisma } from "@vampchains/db";
+import { isAllowedMethod } from "./allowlist.js";
+import { RateLimiter } from "./rateLimiter.js";
+import type { GatewayConfig } from "./config.js";
+
+interface JsonRpcRequest {
+  jsonrpc?: string;
+  id?: string | number | null;
+  method?: unknown;
+  params?: unknown;
+}
+
+const METHOD_NOT_ALLOWED_CODE = -32601;
+const INVALID_REQUEST_CODE = -32600;
+const INTERNAL_ERROR_CODE = -32603;
+
+function rpcError(id: JsonRpcRequest["id"], code: number, message: string) {
+  return { jsonrpc: "2.0", id: id ?? null, error: { code, message } };
+}
+
+function clientIp(req: IncomingMessage): string {
+  const forwarded = req.headers["fly-client-ip"] ?? req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.length > 0) return forwarded.split(",")[0]!.trim();
+  return req.socket.remoteAddress ?? "unknown";
+}
+
+async function readBody(req: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+function setCors(res: ServerResponse) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+function checkMethods(body: JsonRpcRequest | JsonRpcRequest[]): { ok: true } | { ok: false; response: unknown } {
+  const items = Array.isArray(body) ? body : [body];
+  const rejected = items.filter((item) => !isAllowedMethod(item?.method));
+  if (rejected.length === 0) return { ok: true };
+
+  const errors = rejected.map((item) =>
+    rpcError(item?.id ?? null, METHOD_NOT_ALLOWED_CODE, `method "${String(item?.method)}" is not allowed on this gateway`)
+  );
+  return { ok: false, response: Array.isArray(body) ? errors : errors[0] };
+}
+
+export function createGatewayServer(config: GatewayConfig) {
+  const limiter = new RateLimiter(config.rateLimitCapacity, config.rateLimitRefillPerSec);
+
+  return createServer(async (req, res) => {
+    setCors(res);
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    if (req.method === "GET" && req.url === "/health") {
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      res.end("ok");
+      return;
+    }
+
+    const match = req.url?.match(/^\/rpc\/(\d+)\/?$/);
+    if (req.method !== "POST" || !match) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+      return;
+    }
+
+    const chainId = BigInt(match[1]!);
+
+    if (!limiter.tryConsume(clientIp(req))) {
+      res.writeHead(429, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(rpcError(null, -32005, "rate limit exceeded")));
+      return;
+    }
+
+    let body: JsonRpcRequest | JsonRpcRequest[];
+    try {
+      const raw = await readBody(req);
+      body = JSON.parse(raw);
+    } catch {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(rpcError(null, INVALID_REQUEST_CODE, "invalid JSON")));
+      return;
+    }
+
+    const methodCheck = checkMethods(body);
+    if (!methodCheck.ok) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(methodCheck.response));
+      return;
+    }
+
+    const chain = await prisma.chain.findUnique({ where: { chainId } });
+    if (!chain || chain.status !== "ACTIVE" || !chain.rpcUrl) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(rpcError(null, INVALID_REQUEST_CODE, `chain ${chainId} is not active`)));
+      return;
+    }
+
+    try {
+      const upstream = await fetch(chain.rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const text = await upstream.text();
+      res.writeHead(upstream.status, { "Content-Type": "application/json" });
+      res.end(text);
+    } catch (err) {
+      console.error(`[gateway] upstream request to chain ${chainId} failed:`, err);
+      res.writeHead(502, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(rpcError(null, INTERNAL_ERROR_CODE, "upstream node unreachable")));
+    }
+  });
+}
