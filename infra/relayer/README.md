@@ -1,21 +1,39 @@
 # relayer
 
 Single shared process that bridges every vampchain (not one process per
-chain — keeps cost down). Two polling loops per tick:
+chain — keeps cost down). Four polling loops per tick, in two pairs — one
+pair for a chain's own base token (native currency), one pair for every
+other ERC20 (wrapped tokens) — see "General ERC20 bridging" in
+`docs/ARCHITECTURE.md` for the design behind the second pair:
 
-1. **Deposits**: scans `VampBridge.Deposited` events on L1, mints the
-   equivalent native balance on the target vampchain by sending a real,
-   signed transfer from the treasury account (`depositWatcher.ts`) — no
-   cheat code, this is a real signed transaction on a real chain. Scaled to
-   18 decimals regardless of the base token's own decimals — see
+1. **Deposits** (`depositWatcher.ts`): scans `VampBridge.Deposited` events
+   on L1, mints the equivalent native balance on the target vampchain by
+   sending a real, signed transfer from the treasury account — no cheat
+   code, this is a real signed transaction on a real chain. Scaled to 18
+   decimals regardless of the base token's own decimals — see
    `scaleToNativeUnits`, needed for correct display for anything that isn't
    18-decimal, e.g. USDC/USDT.
-2. **Withdrawals**: for every `ACTIVE` chain in Postgres, scans its blocks
-   for plain-value transfers to the withdrawal-signal address (the treasury
-   account itself — see below) and signs an EIP-712 claim for each one
-   (`eip712Domain` in `eip712.ts`, matching `VampBridge.sol`'s domain and
-   `CLAIM_TYPEHASH` exactly) — persisted to `WithdrawalEvent.signature` for
-   `infra/rpc-gateway` to serve.
+2. **Withdrawals** (`withdrawalWatcher.ts`): for every `ACTIVE` chain in
+   Postgres, scans its blocks for plain-value transfers to the
+   withdrawal-signal address (the treasury account itself — see below) and
+   signs an EIP-712 claim for each one (`eip712Domain` in `eip712.ts`,
+   matching `VampBridge.sol`'s domain and `CLAIM_TYPEHASH` exactly) —
+   persisted to `WithdrawalEvent.signature` for `infra/rpc-gateway` to serve.
+3. **General deposits** (`generalDepositWatcher.ts`): scans
+   `VampBridge.DepositedToken` events on L1 (any token except a chain's own
+   base token). Fetches the real token's name/symbol/decimals from L1 (the
+   only place that's knowable — the wrapped-token factory runs on an
+   isolated vampchain with no L1 visibility), then calls
+   `VampWrappedTokenFactory.mintWrapped` on the vampchain, which deploys the
+   wrapped clone on first use and mints on every call. Deployed/minted
+   tokens are indexed into the `WrappedToken` table so the withdrawal side
+   (and the web app) know which contracts exist per chain.
+4. **General withdrawals** (`generalWithdrawalWatcher.ts`): for every
+   `ACTIVE` chain with at least one row in `WrappedToken`, scans for ERC20
+   `Transfer` events to the treasury address on those specific contracts and
+   signs an EIP-712 `ClaimToken` for each — a distinct typehash from
+   `Claim` (see `CLAIM_TOKEN_TYPEHASH`), so a claim can never be replayed
+   across the native/general paths even with identical field values.
 
 **This process never submits an L1 transaction and never needs L1 ETH.**
 `RELAYER_PRIVATE_KEY` is a pure EIP-712 signing key for withdrawal claims —

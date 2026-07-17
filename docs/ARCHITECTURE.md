@@ -195,6 +195,69 @@ exercised directly in `contracts/test/VampBridge.t.sol` (wrong signer,
 every field tampered independently, cross-contract replay, cross-chain
 replay, replay via `claimed`).
 
+#### General ERC20 bridging
+
+`deposit`/`claim` are exclusively for a chain's own designated base token,
+which gets special treatment: it becomes the vampchain's *native gas
+currency*. Every other ERC20 goes through `depositToken`/`claimToken`
+instead — same pull-based EIP-712 pattern, same trust model, keyed by
+`(chainId, token)` instead of only `chainId`, with its own typehash
+(`CLAIM_TOKEN_TYPEHASH`) so a claim signature can never be replayed across
+the two paths (`lockedBalance` and `lockedBalanceGeneral` are also separate
+mappings — a chain's base token can never be deposited through
+`depositToken`, enforced by `TokenIsBaseToken`).
+
+Instead of native currency, a general deposit mints a **wrapped ERC20** on
+the vampchain — `VampWrappedToken`, deployed by `VampWrappedTokenFactory`.
+Both are baked directly into every vampchain's genesis `alloc`, at fixed
+addresses, exactly like the treasury account:
+
+- **Why genesis, not a deploy transaction**: a transaction-deployed CREATE2
+  factory would leave a window between "chain exists" and "factory
+  deployed" where anyone who knew the deployer address and nonce in advance
+  could front-run deployment and squat a token's canonical address with
+  malicious bytecode. Baking it into genesis means it exists at block 0 —
+  no deployment transaction, so no front-running window, ever.
+- **Why the address only depends on the L1 token**: the factory deploys
+  EIP-1167 minimal proxy clones (via solady's `LibClone`) of a single
+  genesis-baked `VampWrappedToken` implementation. A clone's address is a
+  function of `salt` (`keccak256(l1Token)`) and the fixed
+  factory+implementation pair — never of token metadata (name/symbol/
+  decimals). That matters mechanically, not just for tidiness: metadata
+  can't be fetched on-chain here at all, since the factory runs on an
+  isolated vampchain with no visibility into L1 state to call the real
+  `l1Token` contract. The relayer (which does have L1 visibility) supplies
+  metadata when deploying. Because the address never depends on that
+  caller-supplied value, `wrappedAddressOf(l1Token)` is a pure, publishable
+  view — and because every vampchain's genesis bakes in the identical
+  factory+implementation bytecode at the identical addresses, a given L1
+  token's wrapped address is the same across every vampchain, for free.
+- **Why `deploy`/`mintWrapped` are TREASURY-gated despite the address being
+  safe either way**: this is the "permissioned deploy + deterministic
+  bytecode" mitigation. The bytecode (and therefore the address) is fixed
+  and squat-proof regardless of caller. But the *content* written into that
+  address — the name/symbol/decimals a relayer-supplied caller asserts —
+  isn't independently verifiable on-chain, so a malicious caller could
+  otherwise deploy correct-address-but-wrong-metadata tokens (e.g. claiming
+  a scam token is "Wrapped USDC"). Gating to TREASURY closes that; `deploy`
+  is also idempotent and ignores metadata on repeat calls, so a compromised
+  or buggy relayer call can't quietly rebrand an already-deployed token
+  either (see `contracts/test/VampWrappedTokenFactory.t.sol`'s
+  `test_deploy_ignoresMetadataOnRepeatCalls`).
+- **Minting** mirrors the native path: a real signed `mintWrapped` call from
+  the treasury account, gas paid in the vampchain's own native currency.
+- **Withdrawal** mirrors it too, deliberately: no `burn` function exists on
+  `VampWrappedToken` at all. Withdrawing is a plain `transfer` to the
+  treasury address — the exact same signal shape as native-currency
+  recapture — so the relayer watches both with one mental model ("transfer
+  to treasury") instead of two different mechanisms.
+- **Decimals are preserved, not normalized.** Unlike native currency (always
+  treated as 18-decimal, since that's what wallets assume for any EVM
+  chain's native asset), a wrapped ERC20 keeps the real L1 token's own
+  `decimals()` — there's no wallet-level assumption to work around, and
+  preserving it means no scaling math (and no rounding-dust edge case) on
+  either side of this particular bridge path.
+
 ### `infra/sidechain-node/`
 
 Dockerfile wrapping geth (pinned `v1.13.15`, see "Why geth Clique PoA"
@@ -335,9 +398,10 @@ drawn down linearly so nobody can be charged for service not yet rendered.
   removed the relayer's ongoing L1 gas cost, but did **not** change who you
   have to trust: whoever holds the signer key still unilaterally decides
   what's claimable.
-- Only the chain's designated base token can bridge in/out. Bridging
-  arbitrary other ERC20s onto a vampchain is future work (mentioned in the
-  original brief as a "maybe eventually").
+- General ERC20 bridging (any token besides a chain's own base token) mints
+  a wrapped ERC20 on the vampchain rather than native currency — see
+  "General ERC20 bridging" below. Fee-on-transfer/deflationary-token
+  handling and the fee-on-transfer caveat below apply to it the same way.
 - Fee-on-transfer/deflationary tokens are handled correctly on deposit
   (balance-delta accounting). **Rebasing tokens are not** — a token whose
   balance changes without a transfer (e.g. stETH-style) would drift out of

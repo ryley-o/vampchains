@@ -88,6 +88,12 @@ export function createGatewayServer(config: GatewayConfig) {
         JSON.stringify({
           status: "ready",
           chainId: withdrawal.chainId.toString(),
+          // Null for the chain's own base token (native-currency claim);
+          // set to the L1 token address for a general-bridged wrapped
+          // token — see docs/ARCHITECTURE.md "General ERC20 bridging".
+          // The frontend uses this to decide whether to call
+          // VampBridge.claim() or .claimToken().
+          token: withdrawal.token,
           to: withdrawal.to,
           amount: withdrawal.amount,
           sidechainTxHash: withdrawal.sidechainTxHash,

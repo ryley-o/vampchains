@@ -1,7 +1,10 @@
 # web
 
 Next.js (App Router) site: browse vampchains, create one, bridge tokens in
-and out, and a minimal built-in explorer per chain.
+and out, and a minimal built-in explorer per chain. "Bridge" on a chain page
+covers two distinct flows — `BridgeForm` for the chain's own base token
+(native currency), `GeneralBridgeForm` for any other ERC20 (wrapped
+tokens) — see "General ERC20 bridging" in `docs/ARCHITECTURE.md`.
 
 - Chain listing (`/`) and detail pages read Postgres directly via
   `@vampchains/db` (workspace package) for infra state, and read the
@@ -25,7 +28,8 @@ pnpm install
 pnpm dev
 ```
 
-Verified in this session: production build (`next build`) succeeds cleanly,
-and `next start` against a real seeded Postgres correctly renders the chain
-list, chain detail pages (including the "contracts not configured" fallback
-state), the create flow, and the terms page, with no server errors.
+Verified: production build (`next build`) succeeds cleanly, and the chain
+detail page correctly renders both bridge sections against a real seeded
+Postgres — including `GeneralBridgeForm`'s wrapped-token dropdown reflecting
+a real `WrappedToken` row end-to-end (deposit → relayer auto-deploy/mint →
+row indexed → rendered) — with no server errors.

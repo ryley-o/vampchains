@@ -4,9 +4,13 @@ Foundry project, dependency-managed with soldeer (`solady`, `forge-std`).
 
 ```
 src/
-  VampChainRegistry.sol   chain creation, USDC fee accounting/accrual, funding lifecycle
-  VampBridge.sol           lock-and-mint / burn-and-release bridge for a chain's base token
-test/                      75 tests, 100% line coverage on VampBridge, ~95% on VampChainRegistry
+  VampChainRegistry.sol      chain creation, USDC fee accounting/accrual, funding lifecycle
+  VampBridge.sol              lock-and-mint / burn-and-claim bridge — a chain's own base token
+                               (native currency) plus depositToken/claimToken for any other ERC20
+  VampWrappedToken.sol        wrapped-ERC20 implementation for general-bridged tokens (clones only)
+  VampWrappedTokenFactory.sol genesis-baked factory that deploys/mints those clones deterministically
+test/                      115 tests, 100% line coverage on VampBridge and VampWrappedTokenFactory,
+                            ~95% on VampChainRegistry
 script/Deploy.s.sol        deploy script (see env vars in the file header)
 ```
 

@@ -4,7 +4,9 @@ Pick any existing ERC20 token. Pay an annual USDC fee. We spin up a single-node
 EVM sidechain ("vampchain") that uses your token as its native gas currency.
 Deposit the token into our bridge contract, we mint you the equivalent native
 balance on the vampchain, and you're off — a whole little blockchain for your
-token to play in.
+token to play in. Any *other* ERC20 can be bridged onto that vampchain too —
+it just gets a wrapped representation there instead of native-currency
+treatment.
 
 We're a meme-network provider: single node per chain, single rate-limited RPC,
 tiny built-in explorer, run cheaply on Fly.io. The bridge is centralized (it's
@@ -15,7 +17,7 @@ known limitations.
 ## Layout
 
 ```
-contracts/   Foundry project: VampChainRegistry + VampBridge (soldeer + solady), 75 tests
+contracts/   Foundry project: VampChainRegistry + VampBridge (soldeer + solady), 115 tests
 web/         Next.js app: browse/create chains, bridge UI, minimal explorer
 infra/
   sidechain-node/  Dockerized geth (Clique PoA) node = one vampchain
@@ -54,6 +56,6 @@ See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for taking this to real infra
 
 Early, unaudited, no mainnet deployment (verified live end-to-end on Base
 Sepolia testnet — see `docs/DEPLOYMENT.md`). Contracts have a full Foundry
-test suite (`cd contracts && forge test`, 75 tests, 100% line coverage on
+test suite (`cd contracts && forge test`, 115 tests, 100% line coverage on
 `VampBridge`) but have not been externally audited — do not point real funds
 at this on mainnet without an audit.

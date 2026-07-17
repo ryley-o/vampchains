@@ -61,16 +61,45 @@ contract VampBridge is Ownable, ReentrancyGuard, EIP712 {
     /// releasing more than what's actually been deposited for that chain).
     mapping(uint256 => uint256) public lockedBalance;
 
+    /// @notice Same accounting ceiling as `lockedBalance`, generalized to
+    /// arbitrary tokens for the general-bridging path — see `depositToken`/
+    /// `claimToken`. Keyed separately from `lockedBalance` (never the same
+    /// mapping, even for the same token address) since a chain's base token
+    /// always goes through the native-currency path, never this one — see
+    /// `TokenIsBaseToken`.
+    mapping(uint256 => mapping(address => uint256)) public lockedBalanceGeneral;
+
     /// @notice Sidechain burn tx hashes already claimed, to prevent replay.
+    /// Shared between `claim` and `claimToken` — safe, since a native-burn
+    /// tx hash and a wrapped-token-transfer tx hash can never collide (they
+    /// come from genuinely distinct sidechain transactions).
     mapping(bytes32 => bool) public claimed;
 
     bytes32 public constant CLAIM_TYPEHASH =
         keccak256("Claim(uint256 vampChainId,address to,uint256 amount,bytes32 sidechainTxHash)");
 
+    /// @notice Distinct typehash from CLAIM_TYPEHASH — includes `token` so a
+    /// signature minted for one token/chain pair can never be replayed
+    /// against another, even accidentally (different typehash means a
+    /// completely different signed struct, not just different field values).
+    bytes32 public constant CLAIM_TOKEN_TYPEHASH =
+        keccak256("ClaimToken(uint256 vampChainId,address token,address to,uint256 amount,bytes32 sidechainTxHash)");
+
     event Deposited(
         uint256 indexed chainId, address indexed from, address indexed recipient, uint256 amount, uint256 nonce
     );
     event Claimed(uint256 indexed chainId, address indexed to, uint256 amount, bytes32 indexed sidechainTxHash);
+    event DepositedToken(
+        uint256 indexed chainId,
+        address indexed token,
+        address indexed recipient,
+        address from,
+        uint256 amount,
+        uint256 nonce
+    );
+    event ClaimedToken(
+        uint256 indexed chainId, address indexed token, address indexed to, uint256 amount, bytes32 sidechainTxHash
+    );
     event SignerUpdated(address oldSigner, address newSigner);
     event PausedSet(bool paused);
 
@@ -81,6 +110,7 @@ contract VampBridge is Ownable, ReentrancyGuard, EIP712 {
     error AlreadyClaimed();
     error InsufficientLocked();
     error InvalidSignature();
+    error TokenIsBaseToken();
 
     modifier whenNotPaused() {
         if (paused) revert BridgePaused();
@@ -160,6 +190,89 @@ contract VampBridge is Ownable, ReentrancyGuard, EIP712 {
         baseToken.safeTransfer(to, amount);
 
         emit Claimed(chainId, to, amount, sidechainTxHash);
+    }
+
+    // ---------------------------------------------------------------------
+    // General ERC20 bridging
+    //
+    // The functions above (`deposit`/`claim`) are exclusively for a chain's
+    // own designated base token, which gets special treatment: it becomes
+    // the vampchain's *native gas currency*, minted directly by the
+    // relayer's treasury account (see docs/ARCHITECTURE.md "Why geth Clique
+    // PoA"). Every other ERC20 goes through `depositToken`/`claimToken`
+    // instead, and gets a wrapped ERC20 representation on the vampchain —
+    // deployed at a deterministic, squat-proof address by
+    // VampWrappedTokenFactory (baked into every vampchain's genesis) —
+    // rather than native currency. Same pull-based EIP-712 claim pattern,
+    // same trust model, just keyed by `(chainId, token)` instead of only
+    // `chainId`, and with its own typehash so a claim signature can never
+    // be replayed across the two paths.
+    // ---------------------------------------------------------------------
+
+    /// @notice Lock `amount` of `token` for `chainId`, crediting `recipient`
+    /// with the equivalent wrapped-token balance on the vampchain once the
+    /// relayer observes this event. `token` must not be the chain's own
+    /// base token — that has its own dedicated, native-currency-minting path
+    /// above (`deposit`), and mixing the two would split one asset's
+    /// liquidity across two disconnected accounting mappings.
+    ///
+    /// Same balance-delta accounting as `deposit`: credits the *actual*
+    /// amount received, not the nominal `amount` requested, so fee-on-
+    /// transfer/deflationary tokens can never over-credit
+    /// `lockedBalanceGeneral` relative to what this contract actually holds.
+    function depositToken(uint256 chainId, address token, uint256 amount, address recipient)
+        external
+        nonReentrant
+        whenNotPaused
+        returns (uint256 nonce)
+    {
+        if (amount == 0) revert ZeroAmount();
+        if (recipient == address(0)) revert ZeroAddress();
+        if (!registry.isActive(chainId)) revert ChainNotActive();
+        if (token == registry.baseTokenOf(chainId)) revert TokenIsBaseToken();
+
+        uint256 balanceBefore = IERC20BalanceOf(token).balanceOf(address(this));
+        token.safeTransferFrom(msg.sender, address(this), amount);
+        uint256 received = IERC20BalanceOf(token).balanceOf(address(this)) - balanceBefore;
+        if (received == 0) revert ZeroAmount();
+
+        lockedBalanceGeneral[chainId][token] += received;
+
+        nonce = depositNonce++;
+        emit DepositedToken(chainId, token, recipient, msg.sender, received, nonce);
+    }
+
+    /// @notice Claim `amount` of `token` for `chainId` to `to`, authorized by
+    /// an EIP-712 signature from `signer` attesting to a wrapped-token
+    /// transfer-to-treasury on the vampchain (identified by
+    /// `sidechainTxHash`, replay-guarded via the same `claimed` mapping
+    /// `claim` uses). Permissionless in the same way `claim` is — funds
+    /// always land on the `to` address bound into the signature regardless
+    /// of who submits this transaction.
+    function claimToken(
+        uint256 chainId,
+        address token,
+        address to,
+        uint256 amount,
+        bytes32 sidechainTxHash,
+        bytes calldata signature
+    ) external nonReentrant whenNotPaused {
+        if (amount == 0) revert ZeroAmount();
+        if (to == address(0)) revert ZeroAddress();
+        if (claimed[sidechainTxHash]) revert AlreadyClaimed();
+        if (lockedBalanceGeneral[chainId][token] < amount) revert InsufficientLocked();
+
+        bytes32 structHash =
+            keccak256(abi.encode(CLAIM_TOKEN_TYPEHASH, chainId, token, to, amount, sidechainTxHash));
+        address recovered = ECDSA.recoverCalldata(_hashTypedData(structHash), signature);
+        if (recovered != signer) revert InvalidSignature();
+
+        claimed[sidechainTxHash] = true;
+        lockedBalanceGeneral[chainId][token] -= amount;
+
+        token.safeTransfer(to, amount);
+
+        emit ClaimedToken(chainId, token, to, amount, sidechainTxHash);
     }
 
     // ---------------------------------------------------------------------

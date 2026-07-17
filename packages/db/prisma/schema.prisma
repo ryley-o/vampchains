@@ -51,6 +51,7 @@ model Chain {
   deposits      DepositEvent[]
   withdrawals   WithdrawalEvent[]
   fundingEvents FundingEvent[]
+  wrappedTokens WrappedToken[]
 
   @@index([status])
   @@index([baseToken])
@@ -72,6 +73,12 @@ model DepositEvent {
   from      String
   recipient String
   amount    String // uint256 as decimal string
+
+  /// Null for the chain's own base token (native-currency minting path).
+  /// Set to the L1 token address for general ERC20 deposits (wrapped-token
+  /// minting path) — see VampBridge.depositToken / docs/ARCHITECTURE.md
+  /// "General ERC20 bridging".
+  token String?
 
   mintedAt DateTime?
 
@@ -102,6 +109,12 @@ model WithdrawalEvent {
   to     String
   amount String // uint256 as decimal string, in the base token's own decimals
 
+  /// Null for the chain's own base token (native-currency recapture path,
+  /// VampBridge.claim). Set to the L1 token address for general ERC20
+  /// withdrawals (VampBridge.claimToken) — see docs/ARCHITECTURE.md
+  /// "General ERC20 bridging".
+  token String?
+
   signature String? // EIP-712 claim signature, set once the relayer has signed
 
   claimTxHash String?
@@ -111,6 +124,32 @@ model WithdrawalEvent {
 
   @@index([chainId])
   @@index([claimedAt])
+}
+
+/// One row per (chain, L1 token) pair that's ever been general-bridged —
+/// i.e. every wrapped token VampWrappedTokenFactory has deployed on a given
+/// vampchain. The on-chain factory is the real source of truth (its
+/// deterministic address formula works with no index at all — see
+/// docs/ARCHITECTURE.md), but the relayer and web app both need to
+/// enumerate "which tokens has this chain wrapped" without re-deriving that
+/// from raw L1 event history every time, so this is a cache the relayer
+/// keeps in sync as it deploys/mints.
+model WrappedToken {
+  id        Int   @id @default(autoincrement())
+  chain     Chain @relation(fields: [chainDbId], references: [id])
+  chainDbId Int
+  chainId   BigInt
+
+  l1Token  String // the token's address on the home chain (L1)
+  wrapped  String // its deterministic CREATE2 clone address on the vampchain
+  name     String
+  symbol   String
+  decimals Int
+
+  createdAt DateTime @default(now())
+
+  @@unique([chainDbId, l1Token])
+  @@index([chainId])
 }
 
 /// Registry-level funding history (chain creation, top-ups, protocol

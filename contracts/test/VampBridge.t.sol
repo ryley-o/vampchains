@@ -13,6 +13,7 @@ contract VampBridgeTest is Test {
     VampBridge internal bridge;
     MockERC20 internal usdc;
     MockERC20 internal meme;
+    MockERC20 internal randomToken;
 
     address internal owner = makeAddr("owner");
     address internal treasury = makeAddr("treasury");
@@ -46,6 +47,11 @@ contract VampBridgeTest is Test {
         meme.mint(alice, 1_000_000e18);
         vm.prank(alice);
         meme.approve(address(bridge), type(uint256).max);
+
+        randomToken = new MockERC20("Random Token", "RND", 8);
+        randomToken.mint(alice, 1_000_000e8);
+        vm.prank(alice);
+        randomToken.approve(address(bridge), type(uint256).max);
     }
 
     function _domainSeparator(address verifyingContract) internal view returns (bytes32) {
@@ -76,6 +82,31 @@ contract VampBridgeTest is Test {
         returns (bytes memory)
     {
         return _signClaim(signerKey, address(bridge), vampChainId, to, amount, sidechainTxHash);
+    }
+
+    function _signClaimToken(
+        uint256 pk,
+        address verifyingContract,
+        uint256 vampChainId,
+        address token,
+        address to,
+        uint256 amount,
+        bytes32 sidechainTxHash
+    ) internal view returns (bytes memory signature) {
+        bytes32 structHash = keccak256(
+            abi.encode(bridge.CLAIM_TOKEN_TYPEHASH(), vampChainId, token, to, amount, sidechainTxHash)
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(verifyingContract), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        signature = abi.encodePacked(r, s, v);
+    }
+
+    function _validTokenSignature(uint256 vampChainId, address token, address to, uint256 amount, bytes32 txHash)
+        internal
+        view
+        returns (bytes memory)
+    {
+        return _signClaimToken(signerKey, address(bridge), vampChainId, token, to, amount, txHash);
     }
 
     // ---------------------------------------------------------------------
@@ -502,5 +533,335 @@ contract VampBridgeTest is Test {
 
         assertEq(meme.balanceOf(bob), claimAmount);
         assertEq(bridge.lockedBalance(chainId), depositAmount - claimAmount);
+    }
+
+    // ---------------------------------------------------------------------
+    // general ERC20 bridging: depositToken / claimToken
+    // ---------------------------------------------------------------------
+
+    function test_depositToken_happyPath() public {
+        vm.prank(alice);
+        uint256 nonce = bridge.depositToken(chainId, address(randomToken), 100e8, bob);
+
+        assertEq(nonce, 0);
+        assertEq(bridge.lockedBalanceGeneral(chainId, address(randomToken)), 100e8);
+        assertEq(randomToken.balanceOf(address(bridge)), 100e8);
+    }
+
+    function test_depositToken_emitsEvent() public {
+        vm.expectEmit(true, true, true, true);
+        emit VampBridge.DepositedToken(chainId, address(randomToken), bob, alice, 100e8, 0);
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 100e8, bob);
+    }
+
+    function test_depositToken_revertsIfTokenIsBaseToken() public {
+        vm.expectRevert(VampBridge.TokenIsBaseToken.selector);
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(meme), 100e18, bob);
+    }
+
+    function test_depositToken_revertsOnZeroAmount() public {
+        vm.expectRevert(VampBridge.ZeroAmount.selector);
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 0, bob);
+    }
+
+    function test_depositToken_revertsOnZeroRecipient() public {
+        vm.expectRevert(VampBridge.ZeroAddress.selector);
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 1e8, address(0));
+    }
+
+    function test_depositToken_revertsOnInactiveChain() public {
+        vm.warp(block.timestamp + YEAR + 1);
+        vm.expectRevert(VampBridge.ChainNotActive.selector);
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 1e8, bob);
+    }
+
+    function test_depositToken_revertsWhenPaused() public {
+        vm.prank(owner);
+        bridge.setPaused(true);
+        vm.expectRevert(VampBridge.BridgePaused.selector);
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 1e8, bob);
+    }
+
+    /// @notice Two different tokens for the same chain must not share
+    /// accounting, and neither must clash with the native-token mapping.
+    function test_depositToken_accountsSeparatelyPerToken() public {
+        MockERC20 second = new MockERC20("Second Token", "SEC", 18);
+        second.mint(alice, 100e18);
+        vm.prank(alice);
+        second.approve(address(bridge), type(uint256).max);
+
+        vm.prank(alice);
+        bridge.deposit(chainId, 5e18, alice); // native path
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 10e8, alice);
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(second), 20e18, alice);
+
+        assertEq(bridge.lockedBalance(chainId), 5e18);
+        assertEq(bridge.lockedBalanceGeneral(chainId, address(randomToken)), 10e8);
+        assertEq(bridge.lockedBalanceGeneral(chainId, address(second)), 20e18);
+    }
+
+    function test_depositToken_feeOnTransferToken_creditsActualAmountReceived() public {
+        MockFeeOnTransferERC20 feeToken = new MockFeeOnTransferERC20("Fee Token", "FEE", 18, 1_000); // 10% fee
+        feeToken.mint(alice, 1_000e18);
+        vm.prank(alice);
+        feeToken.approve(address(bridge), type(uint256).max);
+
+        vm.prank(alice);
+        uint256 nonce = bridge.depositToken(chainId, address(feeToken), 100e18, bob);
+
+        assertEq(nonce, 0);
+        assertEq(bridge.lockedBalanceGeneral(chainId, address(feeToken)), 90e18);
+        assertEq(feeToken.balanceOf(address(bridge)), 90e18);
+    }
+
+    function test_claimToken_happyPath() public {
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 100e8, alice);
+
+        bytes32 txHash = keccak256("wtok1");
+        bytes memory sig = _validTokenSignature(chainId, address(randomToken), bob, 40e8, txHash);
+        bridge.claimToken(chainId, address(randomToken), bob, 40e8, txHash, sig);
+
+        assertEq(randomToken.balanceOf(bob), 40e8);
+        assertEq(bridge.lockedBalanceGeneral(chainId, address(randomToken)), 60e8);
+        assertTrue(bridge.claimed(txHash));
+    }
+
+    function test_claimToken_callableByAnyone_fundsAlwaysGoToBoundToAddress() public {
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 100e8, alice);
+
+        bytes32 txHash = keccak256("wtok1");
+        bytes memory sig = _validTokenSignature(chainId, address(randomToken), bob, 40e8, txHash);
+
+        vm.prank(makeAddr("randomSubmitter"));
+        bridge.claimToken(chainId, address(randomToken), bob, 40e8, txHash, sig);
+
+        assertEq(randomToken.balanceOf(bob), 40e8);
+    }
+
+    function test_claimToken_emitsEvent() public {
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 100e8, alice);
+
+        bytes32 txHash = keccak256("wtok1");
+        bytes memory sig = _validTokenSignature(chainId, address(randomToken), bob, 40e8, txHash);
+
+        vm.expectEmit(true, true, true, true);
+        emit VampBridge.ClaimedToken(chainId, address(randomToken), bob, 40e8, txHash);
+        bridge.claimToken(chainId, address(randomToken), bob, 40e8, txHash, sig);
+    }
+
+    function test_claimToken_revertsOnReplay() public {
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 100e8, alice);
+
+        bytes32 txHash = keccak256("wtok1");
+        bytes memory sig = _validTokenSignature(chainId, address(randomToken), bob, 40e8, txHash);
+        bridge.claimToken(chainId, address(randomToken), bob, 40e8, txHash, sig);
+
+        vm.expectRevert(VampBridge.AlreadyClaimed.selector);
+        bridge.claimToken(chainId, address(randomToken), bob, 40e8, txHash, sig);
+    }
+
+    function test_claimToken_revertsOnWrongSigner() public {
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 100e8, alice);
+
+        bytes32 txHash = keccak256("wtok1");
+        uint256 attackerKey = 0xBADBAD;
+        bytes memory sig = _signClaimToken(attackerKey, address(bridge), chainId, address(randomToken), bob, 40e8, txHash);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimToken(chainId, address(randomToken), bob, 40e8, txHash, sig);
+    }
+
+    function test_claimToken_revertsIfTokenTampered() public {
+        MockERC20 second = new MockERC20("Second Token", "SEC", 18);
+        second.mint(alice, 100e18);
+        vm.prank(alice);
+        second.approve(address(bridge), type(uint256).max);
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(second), 100e18, alice);
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 100e8, alice);
+
+        bytes32 txHash = keccak256("wtok1");
+        // Signature was minted for `randomToken`; try to redeem `second` with it.
+        bytes memory sig = _validTokenSignature(chainId, address(randomToken), bob, 40e8, txHash);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimToken(chainId, address(second), bob, 40e8, txHash, sig);
+    }
+
+    function test_claimToken_revertsIfToTampered() public {
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 100e8, alice);
+
+        bytes32 txHash = keccak256("wtok1");
+        bytes memory sig = _validTokenSignature(chainId, address(randomToken), bob, 40e8, txHash);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimToken(chainId, address(randomToken), alice, 40e8, txHash, sig);
+    }
+
+    function test_claimToken_revertsIfAmountTampered() public {
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 100e8, alice);
+
+        bytes32 txHash = keccak256("wtok1");
+        bytes memory sig = _validTokenSignature(chainId, address(randomToken), bob, 40e8, txHash);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimToken(chainId, address(randomToken), bob, 41e8, txHash, sig);
+    }
+
+    function test_claimToken_revertsIfChainIdTampered() public {
+        MockERC20 meme2 = new MockERC20("Other Base", "OTH", 18);
+        usdc.mint(bob, ANNUAL_FEE);
+        vm.prank(bob);
+        usdc.approve(address(registry), ANNUAL_FEE);
+        vm.prank(bob);
+        uint256 chainId2 = registry.createChain(address(meme2), "Other", "OTH");
+
+        randomToken.mint(bob, 100e8);
+        vm.prank(bob);
+        randomToken.approve(address(bridge), type(uint256).max);
+        vm.prank(bob);
+        bridge.depositToken(chainId2, address(randomToken), 100e8, bob);
+
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 100e8, alice);
+
+        bytes32 txHash = keccak256("wtok1");
+        bytes memory sig = _validTokenSignature(chainId, address(randomToken), bob, 40e8, txHash);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimToken(chainId2, address(randomToken), bob, 40e8, txHash, sig);
+    }
+
+    function test_claimToken_revertsIfTxHashTampered() public {
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 100e8, alice);
+
+        bytes32 txHash = keccak256("wtok1");
+        bytes memory sig = _validTokenSignature(chainId, address(randomToken), bob, 40e8, txHash);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimToken(chainId, address(randomToken), bob, 40e8, keccak256("wtok2"), sig);
+    }
+
+    /// @notice A `claim` (native) signature must never be redeemable via
+    /// `claimToken`, and vice versa — proves the distinct typehashes
+    /// actually isolate the two message spaces, not just the two functions'
+    /// argument-level checks.
+    function test_claimToken_revertsOnCrossPathReplayFromNativeClaim() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+        // Deposit enough raw randomToken units to exceed the 40e18 claim
+        // amount below (in real units that'd be an absurd amount of an
+        // 8-decimal token, but the contract only deals in raw uint256
+        // units — the point here is isolating the InvalidSignature check,
+        // not modeling a realistic deposit).
+        randomToken.mint(alice, 1_000e18);
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 1_000e18, alice);
+
+        bytes32 txHash = keccak256("shared-hash");
+        bytes memory nativeSig = _validSignature(chainId, bob, 40e18, txHash);
+
+        // Same signer, same chain, same recipient, same tx hash — but a
+        // native `claim` signature, not a `claimToken` one.
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimToken(chainId, address(randomToken), bob, 40e18, txHash, nativeSig);
+    }
+
+    function test_claimToken_revertsOnCrossContractReplay() public {
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 100e8, alice);
+
+        address otherBridgeAddress = makeAddr("otherBridge");
+        bytes32 txHash = keccak256("wtok1");
+        bytes memory sig =
+            _signClaimToken(signerKey, otherBridgeAddress, chainId, address(randomToken), bob, 40e8, txHash);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimToken(chainId, address(randomToken), bob, 40e8, txHash, sig);
+    }
+
+    function test_claimToken_revertsWhenExceedsLocked() public {
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 10e8, alice);
+
+        bytes32 txHash = keccak256("wtok1");
+        bytes memory sig = _validTokenSignature(chainId, address(randomToken), bob, 20e8, txHash);
+
+        vm.expectRevert(VampBridge.InsufficientLocked.selector);
+        bridge.claimToken(chainId, address(randomToken), bob, 20e8, txHash, sig);
+    }
+
+    function test_claimToken_revertsOnZeroAmountOrRecipient() public {
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 10e8, alice);
+
+        bytes32 txHash = keccak256("wtok1");
+        bytes memory zeroAmountSig = _validTokenSignature(chainId, address(randomToken), bob, 0, txHash);
+        vm.expectRevert(VampBridge.ZeroAmount.selector);
+        bridge.claimToken(chainId, address(randomToken), bob, 0, txHash, zeroAmountSig);
+
+        bytes memory zeroToSig = _validTokenSignature(chainId, address(randomToken), address(0), 1e8, txHash);
+        vm.expectRevert(VampBridge.ZeroAddress.selector);
+        bridge.claimToken(chainId, address(randomToken), address(0), 1e8, txHash, zeroToSig);
+    }
+
+    function test_claimToken_revertsWhenPaused() public {
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 10e8, alice);
+        vm.prank(owner);
+        bridge.setPaused(true);
+
+        bytes32 txHash = keccak256("wtok1");
+        bytes memory sig = _validTokenSignature(chainId, address(randomToken), bob, 1e8, txHash);
+
+        vm.expectRevert(VampBridge.BridgePaused.selector);
+        bridge.claimToken(chainId, address(randomToken), bob, 1e8, txHash, sig);
+    }
+
+    function test_claimToken_worksAfterChainDeactivated() public {
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 100e8, alice);
+
+        vm.warp(block.timestamp + YEAR + 1);
+        registry.deactivateIfDepleted(chainId);
+        assertFalse(registry.isActive(chainId));
+
+        bytes32 txHash = keccak256("wtok1");
+        bytes memory sig = _validTokenSignature(chainId, address(randomToken), bob, 40e8, txHash);
+        bridge.claimToken(chainId, address(randomToken), bob, 40e8, txHash, sig);
+        assertEq(randomToken.balanceOf(bob), 40e8);
+    }
+
+    function testFuzz_depositTokenClaimToken_roundTrip(uint96 depositAmount, uint96 claimAmount) public {
+        vm.assume(depositAmount > 0 && depositAmount < 1_000_000_000e8);
+        vm.assume(claimAmount > 0 && claimAmount <= depositAmount);
+
+        randomToken.mint(alice, depositAmount);
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), depositAmount, alice);
+
+        bytes32 txHash = keccak256(abi.encode("fuzz", depositAmount, claimAmount));
+        bytes memory sig = _validTokenSignature(chainId, address(randomToken), bob, claimAmount, txHash);
+        bridge.claimToken(chainId, address(randomToken), bob, claimAmount, txHash, sig);
+
+        assertEq(randomToken.balanceOf(bob), claimAmount);
+        assertEq(bridge.lockedBalanceGeneral(chainId, address(randomToken)), depositAmount - claimAmount);
     }
 }

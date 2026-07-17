@@ -5,6 +5,8 @@ import { prisma } from "@vampchains/db";
 import { loadConfig, type RelayerConfig } from "./config.js";
 import { pollDeposits } from "./depositWatcher.js";
 import { pollWithdrawals } from "./withdrawalWatcher.js";
+import { pollGeneralDeposits } from "./generalDepositWatcher.js";
+import { pollGeneralWithdrawals } from "./generalWithdrawalWatcher.js";
 
 type SigningAccount = ReturnType<typeof privateKeyToAccount>;
 
@@ -24,6 +26,12 @@ async function tick(
     console.error("[deposits] poll failed:", err);
   }
 
+  try {
+    await pollGeneralDeposits(l1Public, cfg.bridgeAddress, cfg.confirmations, treasuryAccount);
+  } catch (err) {
+    console.error("[general-deposits] poll failed:", err);
+  }
+
   let activeChains;
   try {
     activeChains = await prisma.chain.findMany({ where: { status: "ACTIVE", rpcUrl: { not: null } } });
@@ -37,6 +45,11 @@ async function tick(
       await pollWithdrawals(chain, signingAccount, cfg.l1ChainId, cfg.bridgeAddress, cfg.burnAddress);
     } catch (err) {
       console.error(`[withdrawals] poll failed for chain ${chain.chainId}:`, err);
+    }
+    try {
+      await pollGeneralWithdrawals(chain, signingAccount, cfg.l1ChainId, cfg.bridgeAddress, cfg.burnAddress);
+    } catch (err) {
+      console.error(`[general-withdrawals] poll failed for chain ${chain.chainId}:`, err);
     }
   }
 }

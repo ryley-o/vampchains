@@ -5,6 +5,7 @@ import { formatDuration, formatUsdc, shortAddress } from "@/lib/format";
 import { GATEWAY_URL, CONTRACTS_CONFIGURED } from "@/lib/contracts";
 import { StatusPill } from "@/components/StatusPill";
 import { BridgeForm } from "@/components/BridgeForm";
+import { GeneralBridgeForm } from "@/components/GeneralBridgeForm";
 import { TopUpForm } from "@/components/TopUpForm";
 import { ExplorerPanel } from "@/components/ExplorerPanel";
 
@@ -23,10 +24,19 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
   const dbChain = await prisma.chain.findUnique({ where: { chainId } });
   if (!dbChain) notFound();
 
-  const [onchain, remainingRuntime] = await Promise.all([
+  const [onchain, remainingRuntime, wrappedTokenRows] = await Promise.all([
     getOnchainChain(chainId),
     getRemainingRuntime(chainId),
+    prisma.wrappedToken.findMany({ where: { chainDbId: dbChain.id }, orderBy: { createdAt: "asc" } }),
   ]);
+
+  const wrappedTokens = wrappedTokenRows.map((w) => ({
+    l1Token: w.l1Token as `0x${string}`,
+    wrapped: w.wrapped as `0x${string}`,
+    name: w.name,
+    symbol: w.symbol,
+    decimals: w.decimals,
+  }));
 
   const gatewayRpcUrl = `${GATEWAY_URL}/rpc/${chainId}`;
 
@@ -84,6 +94,21 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
               baseTokenDecimals={dbChain.baseTokenDecimals}
               evmChainId={dbChain.evmChainId}
               gatewayRpcUrl={gatewayRpcUrl}
+            />
+          </div>
+        </section>
+      )}
+
+      {dbChain.status === "ACTIVE" && dbChain.rpcUrl && (
+        <section className="rounded-lg border border-neutral-800 p-4">
+          <h2 className="font-semibold">Bridge other tokens</h2>
+          <div className="mt-3">
+            <GeneralBridgeForm
+              chainId={chainId}
+              baseTokenSymbol={dbChain.baseTokenSymbol}
+              evmChainId={dbChain.evmChainId}
+              gatewayRpcUrl={gatewayRpcUrl}
+              wrappedTokens={wrappedTokens}
             />
           </div>
         </section>
