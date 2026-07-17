@@ -1,26 +1,140 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------
+   Vampchain design tokens — from vampchain-brand-kit/. These are the
+   brief's own words, used exactly: ink/bone/blood/charcoal, nothing
+   invented. Derived shades (soft/dim variants) exist only for layering
+   within that same four-color system, never as new hues.
+   --------------------------------------------------------------------- */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --color-ink: #090909;
+  --color-ink-raised: #111113;
+  --color-bone: #f7f7f5;
+  --color-bone-dim: #ddd8d1;
+  --color-blood: #e22d3a;
+  --color-blood-bright: #ff4655;
+  --color-blood-deep: #8f1620;
+  --color-charcoal: #202020;
+  --color-charcoal-soft: #161616;
+  --color-hairline: rgba(247, 247, 245, 0.1);
+  --color-hairline-strong: rgba(247, 247, 245, 0.18);
+
+  --font-display: var(--font-geist-sans);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --ease-fang: cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-ink: var(--color-ink);
+  --color-ink-raised: var(--color-ink-raised);
+  --color-bone: var(--color-bone);
+  --color-bone-dim: var(--color-bone-dim);
+  --color-blood: var(--color-blood);
+  --color-blood-bright: var(--color-blood-bright);
+  --color-blood-deep: var(--color-blood-deep);
+  --color-charcoal: var(--color-charcoal);
+  --color-charcoal-soft: var(--color-charcoal-soft);
+
+  --color-background: var(--color-ink);
+  --color-foreground: var(--color-bone);
+
+  --font-display: var(--font-display);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-ink);
+  color: var(--color-bone);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+::selection {
+  background: var(--color-blood);
+  color: var(--color-bone);
+}
+
+* {
+  border-color: var(--color-hairline);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-blood-bright);
+  outline-offset: 2px;
+}
+
+/* Display headlines: heavy weight, tight tracking — the brand kit's own
+   spec (700-900 weight, tight tracking for large headlines). */
+.text-display {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 850;
+  letter-spacing: -0.045em;
+  line-height: 0.95;
+}
+
+/* A restrained "bite" glow — used only on the hero and a handful of key
+   emphasis words, never ambient everywhere. */
+.text-glow {
+  text-shadow:
+    0 0 30px rgba(226, 45, 58, 0.55),
+    0 0 80px rgba(226, 45, 58, 0.25);
+}
+
+/* Runway meter: a chain is a living thing with a heartbeat until its
+   funding runs out. Used by RunwayMeter. */
+@keyframes pulse-heartbeat {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.animate-heartbeat {
+  animation: pulse-heartbeat 2.4s ease-in-out infinite;
+}
+
+@keyframes intro-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes drift {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 240px 240px;
+  }
+}
+
+.pattern-drift {
+  background-image: url("/brand/brand-pattern.svg");
+  background-size: 240px 240px;
+  animation: drift 60s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

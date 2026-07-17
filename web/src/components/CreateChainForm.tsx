@@ -94,33 +94,35 @@ export function CreateChainForm() {
 
   if (!CONTRACTS_CONFIGURED) {
     return (
-      <p className="rounded border border-yellow-700 bg-yellow-950/40 px-4 py-3 text-sm text-yellow-300">
+      <p className="rounded-xl border border-amber-800/60 bg-amber-950/30 px-4 py-3 text-sm text-amber-300">
         Contracts aren&apos;t deployed/configured on this environment yet. See docs/DEPLOYMENT.md.
       </p>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       <div>
-        <label className="block text-sm font-medium text-neutral-300">Existing ERC20 token address</label>
+        <label className="block text-xs font-semibold uppercase tracking-wider text-bone-dim/60">
+          Existing ERC20 token address
+        </label>
         <input
           value={tokenAddress}
           onChange={(e) => setTokenAddress(e.target.value.trim())}
           placeholder="0x..."
-          className="mt-1 w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-2 font-mono text-sm"
+          className="mt-2 w-full rounded-xl border border-hairline bg-ink-raised px-4 py-3 font-mono text-sm text-bone placeholder:text-bone-dim/30 focus:border-blood/60"
         />
-        {tokenAddress && !validToken && <p className="mt-1 text-xs text-red-400">Not a valid address.</p>}
+        {tokenAddress && !validToken && <p className="mt-1.5 text-xs text-blood-bright">Not a valid address.</p>}
         {validToken && tokenDecimalsError && (
-          <p className="mt-1 text-xs text-red-400">
+          <p className="mt-1.5 text-xs text-blood-bright">
             Couldn&apos;t read decimals() from this address — is it really an ERC20?
           </p>
         )}
         {tokenAlreadyUsed && (
-          <p className="mt-1 text-xs text-red-400">This token already has an active vampchain.</p>
+          <p className="mt-1.5 text-xs text-blood-bright">This token already has an active vampchain.</p>
         )}
         {validToken && tokenDecimals !== undefined && !tokenDecimalsError && (
-          <p className="mt-1 text-xs text-neutral-500">
+          <p className="mt-1.5 text-xs text-emerald-300/80">
             Detected: {String(tokenName ?? "?")} (${String(tokenSymbol ?? "?")}), {String(tokenDecimals)} decimals
           </p>
         )}
@@ -128,46 +130,58 @@ export function CreateChainForm() {
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-neutral-300">Chain name</label>
+          <label className="block text-xs font-semibold uppercase tracking-wider text-bone-dim/60">
+            Chain name
+          </label>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={64}
-            className="mt-1 w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm"
+            className="mt-2 w-full rounded-xl border border-hairline bg-ink-raised px-4 py-3 text-sm text-bone focus:border-blood/60"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-neutral-300">Symbol</label>
+          <label className="block text-xs font-semibold uppercase tracking-wider text-bone-dim/60">Symbol</label>
           <input
             value={symbol}
             onChange={(e) => setSymbol(e.target.value)}
             maxLength={16}
-            className="mt-1 w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm"
+            className="mt-2 w-full rounded-xl border border-hairline bg-ink-raised px-4 py-3 text-sm text-bone focus:border-blood/60"
           />
         </div>
       </div>
 
-      <div className="rounded border border-neutral-800 bg-neutral-900/50 p-4 text-sm">
+      <div className="rounded-xl border border-hairline bg-charcoal-soft/50 p-4 text-sm text-bone-dim/80">
         <p>
-          Annual fee: <span className="font-semibold">${formatUsdc(fee)} USDC</span> (paid up front, drawn down
-          linearly over the year, refundable runway if you never touch it again — see{" "}
-          <a href="/terms" className="underline">
+          Annual fee: <span className="font-semibold text-bone">${formatUsdc(fee)} USDC</span>, paid up front and
+          drawn down linearly over the year — nobody can charge you for runway you haven&apos;t
+          used yet. See{" "}
+          <a href="/terms" className="text-bone underline underline-offset-2">
             terms
           </a>
-          ).
+          .
         </p>
       </div>
 
-      <label className="flex items-start gap-2 text-sm text-neutral-400">
-        <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-1" />
+      <label className="flex items-start gap-2.5 text-sm text-bone-dim/60">
+        <input
+          type="checkbox"
+          checked={agreed}
+          onChange={(e) => setAgreed(e.target.checked)}
+          className="mt-1 accent-blood"
+        />
         <span>
-          I&apos;ve read the <a href="/terms" className="underline">terms</a>: this is unaudited, experimental
-          software, the bridge is a single trusted relayer, and I won&apos;t use it for anything illegal.
+          I&apos;ve read the{" "}
+          <a href="/terms" className="text-bone-dim underline underline-offset-2">
+            terms
+          </a>
+          : this is unaudited, experimental software, the bridge is a single trusted relayer, and
+          I won&apos;t use it for anything illegal.
         </span>
       </label>
 
       {!isConnected ? (
-        <p className="text-sm text-neutral-500">Connect your wallet to continue.</p>
+        <p className="text-sm text-bone-dim/50">Connect your wallet to continue.</p>
       ) : needsApproval ? (
         <button
           disabled={!canSubmit || approving || approveConfirming}
@@ -179,9 +193,9 @@ export function CreateChainForm() {
               args: [REGISTRY_ADDRESS, fee],
             })
           }
-          className="rounded bg-neutral-100 px-4 py-2 text-sm font-medium text-black hover:bg-white disabled:opacity-50"
+          className="w-full rounded-full bg-bone px-6 py-3.5 text-sm font-semibold uppercase tracking-wider text-ink transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100 sm:w-auto"
         >
-          {approving || approveConfirming ? "Approving USDC..." : `Approve ${formatUsdc(fee)} USDC`}
+          {approving || approveConfirming ? "Approving USDC…" : `Approve ${formatUsdc(fee)} USDC`}
         </button>
       ) : (
         <button
@@ -195,17 +209,17 @@ export function CreateChainForm() {
               args: [validToken, name, symbol],
             })
           }
-          className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50"
+          className="w-full rounded-full bg-blood px-6 py-3.5 text-sm font-semibold uppercase tracking-wider text-bone shadow-[0_0_40px_rgba(226,45,58,0.3)] transition-transform hover:scale-[1.02] hover:bg-blood-bright disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100 sm:w-auto"
         >
-          {creating || createConfirming ? "Creating chain..." : "Pay & create vampchain"}
+          {creating || createConfirming ? "Creating chain…" : "Pay & create vampchain"}
         </button>
       )}
 
-      {createError && <p className="text-sm text-red-400">{createError.message}</p>}
+      {createError && <p className="text-sm text-blood-bright">{createError.message}</p>}
       {createConfirmed && (
-        <p className="text-sm text-green-400">
+        <p className="text-sm text-emerald-300">
           Chain created! It&apos;ll show up on the homepage once the provisioner spins up its node
-          (usually well under a minute).
+          — usually well under a minute.
         </p>
       )}
     </div>

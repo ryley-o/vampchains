@@ -76,21 +76,24 @@ export function ExplorerPanel({ rpcUrl, symbol }: ExplorerPanelProps) {
           value={lookup}
           onChange={(e) => setLookup(e.target.value)}
           placeholder="Look up an address balance"
-          className="flex-1 rounded border border-neutral-700 bg-neutral-900 px-3 py-2 font-mono text-sm"
+          className="flex-1 rounded-xl border border-hairline bg-ink-raised px-3 py-2 font-mono text-sm text-bone placeholder:text-bone-dim/30 focus:border-blood/60"
         />
-        <button onClick={checkBalance} className="rounded border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800">
+        <button
+          onClick={checkBalance}
+          className="rounded-xl border border-hairline-strong px-4 py-2 text-sm font-medium text-bone-dim transition-colors hover:border-blood/50 hover:text-bone"
+        >
           Check
         </button>
       </div>
-      {balance && <p className="text-sm text-neutral-300">{balance}</p>}
+      {balance && <p className="font-mono text-sm text-emerald-300">{balance}</p>}
 
       {error ? (
-        <p className="text-sm text-red-400">{error}</p>
+        <p className="text-sm text-blood-bright">{error}</p>
       ) : blocks.length === 0 ? (
-        <p className="text-sm text-neutral-500">Loading...</p>
+        <p className="text-sm text-bone-dim/50">Loading…</p>
       ) : (
         <table className="w-full text-left text-sm">
-          <thead className="text-neutral-500">
+          <thead className="font-mono text-[11px] uppercase tracking-wider text-bone-dim/40">
             <tr>
               <th className="pb-2 font-normal">Block</th>
               <th className="pb-2 font-normal">Hash</th>
@@ -100,13 +103,13 @@ export function ExplorerPanel({ rpcUrl, symbol }: ExplorerPanelProps) {
           </thead>
           <tbody>
             {blocks.map((b) => (
-              <tr key={b.number.toString()} className="border-t border-neutral-800">
-                <td className="py-2">{b.number.toString()}</td>
-                <td className="py-2 font-mono text-xs text-neutral-400">
-                  {b.hash.slice(0, 10)}...{b.hash.slice(-8)}
+              <tr key={b.number.toString()} className="border-t border-hairline">
+                <td className="py-2.5 font-mono text-bone">{b.number.toString()}</td>
+                <td className="py-2.5 font-mono text-xs text-bone-dim/50">
+                  {b.hash.slice(0, 10)}…{b.hash.slice(-8)}
                 </td>
-                <td className="py-2">{b.txCount}</td>
-                <td className="py-2 text-neutral-500">{new Date(Number(b.timestamp) * 1000).toLocaleTimeString()}</td>
+                <td className="py-2.5 text-bone-dim/70">{b.txCount}</td>
+                <td className="py-2.5 text-bone-dim/50">{new Date(Number(b.timestamp) * 1000).toLocaleTimeString()}</td>
               </tr>
             ))}
           </tbody>

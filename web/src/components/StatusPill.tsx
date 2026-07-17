@@ -1,13 +1,20 @@
-const COLORS: Record<string, string> = {
-  ACTIVE: "bg-green-900 text-green-300",
-  DEACTIVATED: "bg-neutral-800 text-neutral-500",
-  DEACTIVATING: "bg-orange-900 text-orange-300",
-  PROVISION_FAILED: "bg-red-900 text-red-300",
-  PENDING_PROVISION: "bg-yellow-900 text-yellow-300",
-  PROVISIONING: "bg-yellow-900 text-yellow-300",
+const STYLES: Record<string, { dot: string; text: string; pulse?: boolean }> = {
+  ACTIVE: { dot: "bg-emerald-400", text: "text-emerald-300", pulse: true },
+  DEACTIVATED: { dot: "bg-bone-dim/40", text: "text-bone-dim/50" },
+  DEACTIVATING: { dot: "bg-amber-400", text: "text-amber-300" },
+  PROVISION_FAILED: { dot: "bg-blood-bright", text: "text-blood-bright" },
+  PENDING_PROVISION: { dot: "bg-amber-400", text: "text-amber-300", pulse: true },
+  PROVISIONING: { dot: "bg-amber-400", text: "text-amber-300", pulse: true },
 };
 
 export function StatusPill({ status }: { status: string }) {
-  const color = COLORS[status] ?? "bg-neutral-800 text-neutral-400";
-  return <span className={`rounded-full px-2 py-0.5 text-xs ${color}`}>{status.replace(/_/g, " ").toLowerCase()}</span>;
+  const style = STYLES[status] ?? { dot: "bg-bone-dim/40", text: "text-bone-dim/50" };
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border border-hairline bg-charcoal-soft/60 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider ${style.text}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${style.dot} ${style.pulse ? "animate-heartbeat" : ""}`} />
+      {status.replace(/_/g, " ").toLowerCase()}
+    </span>
+  );
 }

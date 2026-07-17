@@ -158,30 +158,30 @@ export function BridgeForm({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h3 className="font-semibold">Deposit → mint native currency on the vampchain</h3>
-        <p className="mt-1 text-xs text-neutral-500">
-          Locks {baseTokenSymbol} here on the home chain; the relayer mints you the equivalent
-          native balance on the vampchain, usually within a few seconds.
+        <h3 className="text-display text-lg text-bone">Deposit → mint {baseTokenSymbol} as gas</h3>
+        <p className="mt-1.5 text-sm text-bone-dim/60">
+          Locks {baseTokenSymbol} here on Base; the relayer mints you the equivalent native
+          balance on the vampchain, usually within a few seconds.
         </p>
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <input
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder={`Amount (${baseTokenSymbol})`}
-            className="rounded border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm"
+            className="rounded-xl border border-hairline bg-ink-raised px-3 py-2.5 text-sm text-bone placeholder:text-bone-dim/30 focus:border-blood/60"
           />
           <input
             value={recipient}
             onChange={(e) => setRecipient(e.target.value)}
             placeholder="Recipient (defaults to you)"
-            className="rounded border border-neutral-700 bg-neutral-900 px-3 py-2 font-mono text-sm"
+            className="rounded-xl border border-hairline bg-ink-raised px-3 py-2.5 font-mono text-sm text-bone placeholder:text-bone-dim/30 focus:border-blood/60"
           />
         </div>
 
         {!isConnected ? (
-          <p className="mt-3 text-sm text-neutral-500">Connect your wallet to bridge.</p>
+          <p className="mt-3 text-sm text-bone-dim/50">Connect your wallet to bridge.</p>
         ) : needsApproval ? (
           <button
             disabled={!parsedAmount || approving || approveConfirming}
@@ -189,9 +189,9 @@ export function BridgeForm({
               parsedAmount &&
               approve({ address: baseToken, abi: ERC20_ABI, functionName: "approve", args: [BRIDGE_ADDRESS, parsedAmount] })
             }
-            className="mt-3 rounded bg-neutral-100 px-4 py-2 text-sm font-medium text-black hover:bg-white disabled:opacity-50"
+            className="mt-4 rounded-full bg-bone px-6 py-2.5 text-sm font-semibold text-ink transition-transform hover:scale-[1.02] disabled:opacity-40 disabled:hover:scale-100"
           >
-            {approving || approveConfirming ? "Approving..." : `Approve ${baseTokenSymbol}`}
+            {approving || approveConfirming ? "Approving…" : `Approve ${baseTokenSymbol}`}
           </button>
         ) : (
           <button
@@ -206,68 +206,69 @@ export function BridgeForm({
                 args: [chainId, parsedAmount, effectiveRecipient],
               })
             }
-            className="mt-3 rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50"
+            className="mt-4 rounded-full bg-blood px-6 py-2.5 text-sm font-semibold text-bone shadow-[0_0_30px_rgba(226,45,58,0.25)] transition-transform hover:scale-[1.02] hover:bg-blood-bright disabled:opacity-40 disabled:hover:scale-100"
           >
-            {depositing || depositConfirming ? "Depositing..." : "Deposit & mint"}
+            {depositing || depositConfirming ? "Depositing…" : "Deposit & mint"}
           </button>
         )}
-        {depositError && <p className="mt-2 text-sm text-red-400">{depositError.message}</p>}
-        {depositConfirmed && <p className="mt-2 text-sm text-green-400">Deposited — mint should land shortly.</p>}
+        {depositError && <p className="mt-2 text-sm text-blood-bright">{depositError.message}</p>}
+        {depositConfirmed && <p className="mt-2 text-sm text-emerald-300">Deposited — mint should land shortly.</p>}
       </div>
 
-      <div className="border-t border-neutral-800 pt-6">
-        <h3 className="font-semibold">Withdraw → back to {baseTokenSymbol} on the home chain</h3>
-        <p className="mt-1 text-xs text-neutral-500">
-          Burning sends native currency on the vampchain to the burn address. The relayer sees it
-          and signs a claim — you then submit that claim yourself on Base, so you pay your own gas
-          and we never touch your funds in between.
+      <div className="border-t border-hairline pt-8">
+        <h3 className="text-display text-lg text-bone">Withdraw → back to {baseTokenSymbol} on Base</h3>
+        <p className="mt-1.5 text-sm text-bone-dim/60">
+          Sending native currency on the vampchain to the treasury address is the withdrawal
+          signal. The relayer sees it and signs a claim — you submit that yourself on Base, so you
+          pay your own gas and we never touch your funds in between.
         </p>
 
         <button
           onClick={addToWallet}
-          className="mt-3 rounded border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-800"
+          className="mt-4 rounded-full border border-hairline-strong px-5 py-2 text-sm font-medium text-bone-dim transition-colors hover:border-blood/50 hover:text-bone"
         >
           Add vampchain to wallet
         </button>
 
         {!claim && (
-          <div className="mt-3 flex gap-2">
+          <div className="mt-4 flex gap-2">
             <input
               value={burnAmount}
               onChange={(e) => setBurnAmount(e.target.value)}
-              placeholder={`Amount to burn (${baseTokenSymbol})`}
-              className="flex-1 rounded border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm"
+              placeholder={`Amount to withdraw (${baseTokenSymbol})`}
+              className="flex-1 rounded-xl border border-hairline bg-ink-raised px-3 py-2.5 text-sm text-bone placeholder:text-bone-dim/30 focus:border-blood/60"
             />
             <button
               disabled={!burnAmount || burning || !isConnected}
               onClick={burnToWithdraw}
-              className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50"
+              className="rounded-full bg-blood px-5 py-2.5 text-sm font-semibold text-bone transition-transform hover:scale-[1.02] hover:bg-blood-bright disabled:opacity-40 disabled:hover:scale-100"
             >
-              {burning ? "Burning..." : "Burn to withdraw"}
+              {burning ? "Sending…" : "Withdraw"}
             </button>
           </div>
         )}
-        {burnError && <p className="mt-2 text-sm text-red-400">{burnError}</p>}
+        {burnError && <p className="mt-2 text-sm text-blood-bright">{burnError}</p>}
 
         {claim?.status === "pending" && (
-          <p className="mt-3 text-sm text-neutral-400">
-            Burn confirmed (tx {burnTxHash?.slice(0, 10)}...) — waiting for the relayer to sign your
-            claim, usually well under a minute.
+          <p className="mt-4 flex items-center gap-2 text-sm text-bone-dim/60">
+            <span className="h-1.5 w-1.5 animate-heartbeat rounded-full bg-amber-400" />
+            Withdrawal confirmed (tx {burnTxHash?.slice(0, 10)}…) — waiting for the relayer to sign
+            your claim, usually well under a minute.
           </p>
         )}
 
         {claim?.status === "ready" && (
-          <div className="mt-3">
-            <p className="text-sm text-green-400">Claim ready.</p>
+          <div className="mt-4">
+            <p className="text-sm text-emerald-300">Claim ready.</p>
             <button
               disabled={claiming || claimConfirming}
               onClick={doClaim}
-              className="mt-2 rounded bg-neutral-100 px-4 py-2 text-sm font-medium text-black hover:bg-white disabled:opacity-50"
+              className="mt-2 rounded-full bg-bone px-6 py-2.5 text-sm font-semibold text-ink transition-transform hover:scale-[1.02] disabled:opacity-40 disabled:hover:scale-100"
             >
-              {claiming || claimConfirming ? "Claiming..." : `Claim on Base (you pay gas)`}
+              {claiming || claimConfirming ? "Claiming…" : "Claim on Base (you pay gas)"}
             </button>
-            {claimError && <p className="mt-2 text-sm text-red-400">{claimError.message}</p>}
-            {claimConfirmed && <p className="mt-2 text-sm text-green-400">Claimed — funds are back on the home chain.</p>}
+            {claimError && <p className="mt-2 text-sm text-blood-bright">{claimError.message}</p>}
+            {claimConfirmed && <p className="mt-2 text-sm text-emerald-300">Claimed — funds are back on Base.</p>}
           </div>
         )}
       </div>

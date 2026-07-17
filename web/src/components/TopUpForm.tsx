@@ -38,19 +38,19 @@ export function TopUpForm({ chainId }: { chainId: bigint }) {
 
   return (
     <div>
-      <p className="text-xs text-neutral-500">
-        Anyone can send USDC here to extend this chain&apos;s runway — the public way to prevent a
-        chain from getting torn down.
+      <p className="text-xs text-bone-dim/50">
+        Anyone can send USDC here to extend this chain&apos;s runway — the public way to keep a
+        chain from flatlining.
       </p>
       <div className="mt-3 flex gap-2">
         <input
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           placeholder="Amount (USDC)"
-          className="w-40 rounded border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm"
+          className="w-40 rounded-xl border border-hairline bg-ink-raised px-3 py-2 text-sm text-bone placeholder:text-bone-dim/30 focus:border-blood/60"
         />
         {!isConnected ? (
-          <span className="self-center text-sm text-neutral-500">Connect wallet</span>
+          <span className="self-center text-sm text-bone-dim/40">Connect wallet</span>
         ) : needsApproval ? (
           <button
             disabled={!parsedAmount || approving || approveConfirming}
@@ -58,22 +58,22 @@ export function TopUpForm({ chainId }: { chainId: bigint }) {
               parsedAmount &&
               approve({ address: USDC_ADDRESS, abi: ERC20_ABI, functionName: "approve", args: [REGISTRY_ADDRESS, parsedAmount] })
             }
-            className="rounded bg-neutral-100 px-4 py-2 text-sm font-medium text-black hover:bg-white disabled:opacity-50"
+            className="rounded-xl bg-bone px-4 py-2 text-sm font-semibold text-ink transition-transform hover:scale-[1.03] disabled:opacity-40 disabled:hover:scale-100"
           >
-            {approving || approveConfirming ? "Approving..." : "Approve"}
+            {approving || approveConfirming ? "Approving…" : "Approve"}
           </button>
         ) : (
           <button
             disabled={!parsedAmount || sending || confirming}
             onClick={() => parsedAmount && topUp({ address: REGISTRY_ADDRESS, abi: REGISTRY_ABI, functionName: "topUp", args: [chainId, parsedAmount] })}
-            className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50"
+            className="rounded-xl bg-blood px-4 py-2 text-sm font-semibold text-bone transition-transform hover:scale-[1.03] hover:bg-blood-bright disabled:opacity-40 disabled:hover:scale-100"
           >
-            {sending || confirming ? "Sending..." : "Top up"}
+            {sending || confirming ? "Sending…" : "Top up"}
           </button>
         )}
       </div>
-      {error && <p className="mt-2 text-sm text-red-400">{error.message}</p>}
-      {confirmed && <p className="mt-2 text-sm text-green-400">Topped up!</p>}
+      {error && <p className="mt-2 text-sm text-blood-bright">{error.message}</p>}
+      {confirmed && <p className="mt-2 text-sm text-emerald-300">Topped up!</p>}
     </div>
   );
 }
