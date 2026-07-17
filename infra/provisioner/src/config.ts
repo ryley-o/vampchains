@@ -11,6 +11,11 @@ export interface ProvisionerConfig {
   confirmations: number;
   backend: Backend;
 
+  /// The Clique block-signing key baked into every vampchain node this
+  /// provisioner creates — same key reused across every chain by design,
+  /// see docs/ARCHITECTURE.md.
+  cliqueSignerPrivateKey: string;
+
   // local-docker backend
   sidechainImage: string;
   dockerNetwork?: string;
@@ -45,6 +50,7 @@ export function loadConfig(): ProvisionerConfig {
     pollIntervalMs: Number(process.env.POLL_INTERVAL_MS ?? 6000),
     confirmations: Number(process.env.CONFIRMATIONS ?? 2),
     backend,
+    cliqueSignerPrivateKey: requireEnv("CLIQUE_SIGNER_PRIVATE_KEY"),
     sidechainImage: process.env.SIDECHAIN_IMAGE ?? "vampchains-sidechain-node:latest",
     dockerNetwork: process.env.DOCKER_NETWORK,
     localHostPortBase: Number(process.env.LOCAL_HOST_PORT_BASE ?? 8600),

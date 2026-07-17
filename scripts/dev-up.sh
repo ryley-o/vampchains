@@ -44,6 +44,16 @@ REGISTRY_ADDRESS=$REGISTRY_ADDRESS
 BRIDGE_ADDRESS=$BRIDGE_ADDRESS
 RELAYER_PRIVATE_KEY=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
 PROVISIONER_PRIVATE_KEY=0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a
+# Must control the private key for the address baked into
+# infra/sidechain-node/entrypoint.sh's TREASURY_ADDRESS default, since every
+# locally-provisioned vampchain funds that exact address at genesis. Reuses
+# the real (testnet-only) treasury key from .secrets/testnet-wallets.json —
+# safe to reuse locally since it's Base Sepolia-only and, by design, alone
+# can't move real L1 funds (that requires the separate claim-signing key).
+TREASURY_PRIVATE_KEY=0x9c0dda1495037bc06e6e5f00e992b9d42c7b0e4364b81f066dc41dae277d4f06
+# Block-signing key baked into every locally-provisioned vampchain node.
+# Arbitrary well-known test key — see infra/provisioner/.env.example.
+CLIQUE_SIGNER_PRIVATE_KEY=0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a
 EOF
 echo "==> wrote .env with deployed addresses"
 

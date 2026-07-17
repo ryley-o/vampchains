@@ -5,6 +5,13 @@ libs = ["dependencies"]
 optimizer = true
 optimizer_runs = 1_000_000
 via_ir = false
+# Must not exceed London: our geth-based vampchain/L1-stand-in genesis stops
+# at London deliberately. Any timestamp-based fork (Shanghai+, needed for
+# PUSH0) only activates once geth considers the chain "post-merge", which
+# then requires Engine-API-driven block production instead of legacy
+# `--mine` Clique auto-sealing — confirmed by direct testing. London-targeted
+# bytecode still runs fine on Base (forwards-compatible).
+evm_version = "london"
 
 [soldeer]
 remappings_generate = false

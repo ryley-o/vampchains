@@ -8,6 +8,9 @@ export interface FlyOptions {
   orgSlug: string;
   image: string;
   region: string;
+  /// The Clique block-signing key every vampchain node needs — same key
+  /// reused across every chain by design, see docs/ARCHITECTURE.md.
+  cliqueSignerPrivateKey: string;
 }
 
 function appName(chain: ChainRow): string {
@@ -15,12 +18,11 @@ function appName(chain: ChainRow): string {
 }
 
 /// Provisions one Fly app + one Fly Machine per vampchain via the Fly
-/// Machines REST API (https://api.machines.dev/v1). NOTE: written against
-/// Fly's documented API shape but not exercised against a real Fly org in
-/// this session (no credentials available) — treat as a solid starting
-/// point that needs a live smoke test with a real FLY_API_TOKEN before
-/// depending on it, not as a verified implementation. LocalDockerProvisioner
-/// is the one that's actually been run end-to-end.
+/// Machines REST API (https://api.machines.dev/v1). Verified live against a
+/// real Fly org (with the anvil-based image) — provisioning a real per-chain
+/// app/machine on demand actually works end to end. Re-verify after the
+/// geth migration before trusting it again, same as everything else that
+/// touched the sidechain-node image.
 export class FlyProvisioner implements Provisioner {
   constructor(private opts: FlyOptions) {}
 
@@ -66,7 +68,7 @@ export class FlyProvisioner implements Provisioner {
             CHAIN_ID: chain.evmChainId.toString(),
             PORT: "8545",
             STATE_DIR: "/data",
-            STATE_INTERVAL: "30",
+            CLIQUE_SIGNER_PRIVATE_KEY: this.opts.cliqueSignerPrivateKey,
           },
           guest: { cpu_kind: "shared", cpus: 1, memory_mb: 256 },
           mounts: [{ volume: volumeName, path: "/data" }],

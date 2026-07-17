@@ -12,9 +12,14 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function tick(l1Public: PublicClient, signingAccount: SigningAccount, cfg: RelayerConfig) {
+async function tick(
+  l1Public: PublicClient,
+  signingAccount: SigningAccount,
+  treasuryAccount: SigningAccount,
+  cfg: RelayerConfig
+) {
   try {
-    await pollDeposits(l1Public, cfg.bridgeAddress, cfg.confirmations);
+    await pollDeposits(l1Public, cfg.bridgeAddress, cfg.confirmations, treasuryAccount);
   } catch (err) {
     console.error("[deposits] poll failed:", err);
   }
@@ -38,15 +43,18 @@ async function tick(l1Public: PublicClient, signingAccount: SigningAccount, cfg:
 
 async function main() {
   const cfg = loadConfig();
-  // Pure local signing account — never submits a transaction, never needs
-  // ETH. Deposits are minted via anvil_setBalance (free), and withdrawals
-  // are now claim signatures (also free) rather than pushed release() txs.
-  // This relayer process has no L1 gas dependency at all.
+  // `account` is a pure EIP-712 signing key: never submits a transaction,
+  // never needs L1 ETH — it only ever signs withdrawal claims (see
+  // eip712.ts). `treasuryAccount` DOES submit real transactions, but only
+  // ever on a vampchain, spending that chain's own pre-funded native
+  // currency — never L1 gas either. This relayer process has no L1 gas
+  // dependency at all.
   const account = privateKeyToAccount(cfg.relayerPrivateKey);
+  const treasuryAccount = privateKeyToAccount(cfg.treasuryPrivateKey);
   const l1Public: PublicClient = createPublicClient({ transport: http(cfg.l1RpcUrl) });
 
   console.log(
-    `vampchains relayer starting: signer=${account.address} bridge=${cfg.bridgeAddress} l1=${cfg.l1RpcUrl} pollMs=${cfg.pollIntervalMs}`
+    `vampchains relayer starting: signer=${account.address} treasury=${treasuryAccount.address} bridge=${cfg.bridgeAddress} l1=${cfg.l1RpcUrl} pollMs=${cfg.pollIntervalMs}`
   );
 
   let running = true;
@@ -58,7 +66,7 @@ async function main() {
   process.on("SIGTERM", shutdown);
 
   while (running) {
-    await tick(l1Public, account, cfg);
+    await tick(l1Public, account, treasuryAccount, cfg);
     await sleep(cfg.pollIntervalMs);
   }
 

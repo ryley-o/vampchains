@@ -25,6 +25,11 @@ export const L1_CHAIN_ID = Number(process.env.NEXT_PUBLIC_L1_CHAIN_ID ?? 31337);
 export const L1_RPC_URL = process.env.NEXT_PUBLIC_L1_RPC_URL ?? "http://localhost:8545";
 export const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:18080";
 export const USDC_DECIMALS = Number(process.env.NEXT_PUBLIC_USDC_DECIMALS ?? 6);
-export const BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD" as Address;
+// The withdrawal-signal address on every vampchain: sending native currency
+// here signals "I want to withdraw." Deliberately the treasury account
+// itself, not a real dead address — recaptured, not destroyed. See
+// "Withdrawal signal: recapture, not destroy" in docs/ARCHITECTURE.md.
+export const BURN_ADDRESS =
+  (process.env.NEXT_PUBLIC_BURN_ADDRESS as Address | undefined) ?? ("0x12f5B89B02C8107278c5F24E74d7B44267C55d1f" as Address);
 
 export const CONTRACTS_CONFIGURED = REGISTRY_ADDRESS !== ("0x0000000000000000000000000000000000000000" as Address);

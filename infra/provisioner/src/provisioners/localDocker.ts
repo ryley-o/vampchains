@@ -12,6 +12,9 @@ export interface LocalDockerOptions {
   /// of localhost:port. Leave unset for bare standalone use.
   network?: string;
   hostPortBase: number;
+  /// The Clique block-signing key every vampchain node needs — same key
+  /// reused across every chain by design, see docs/ARCHITECTURE.md.
+  cliqueSignerPrivateKey: string;
 }
 
 function containerName(chain: ChainRow): string {
@@ -42,6 +45,8 @@ export class LocalDockerProvisioner implements Provisioner {
       `${volumeName}:/data`,
       "-e",
       `CHAIN_ID=${chain.evmChainId}`,
+      "-e",
+      `CLIQUE_SIGNER_PRIVATE_KEY=${this.opts.cliqueSignerPrivateKey}`,
     ];
     if (this.opts.network) args.push("--network", this.opts.network);
     args.push(this.opts.image);

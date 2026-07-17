@@ -20,6 +20,7 @@ function buildProvisioner(cfg: ProvisionerConfig): Provisioner {
       image: cfg.sidechainImage,
       network: cfg.dockerNetwork,
       hostPortBase: cfg.localHostPortBase,
+      cliqueSignerPrivateKey: cfg.cliqueSignerPrivateKey,
     });
   }
 
@@ -31,6 +32,7 @@ function buildProvisioner(cfg: ProvisionerConfig): Provisioner {
     orgSlug: cfg.flyOrgSlug,
     image: cfg.sidechainImage,
     region: cfg.flyRegion,
+    cliqueSignerPrivateKey: cfg.cliqueSignerPrivateKey,
   });
 }
 

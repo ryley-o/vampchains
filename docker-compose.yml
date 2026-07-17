@@ -18,16 +18,17 @@ services:
       retries: 10
 
   # The "home chain" for local dev — stands in for Base. Reuses the same
-  # anvil-in-Docker image as every vampchain; it's just anvil either way.
+  # geth-based image as every vampchain. Genesis funds TREASURY_ADDRESS here
+  # with DeployLocal.s.sol's deployer (anvil account #0) instead of the
+  # usual shared treasury address, since this chain just needs *a* funded
+  # account to broadcast the deploy script from, not real mint semantics.
   l1:
     build: ./infra/sidechain-node
     image: vampchains-sidechain-node:local
     environment:
       CHAIN_ID: "31337"
-      STATE_INTERVAL: "10"
-      # This is the local-dev stand-in for Base, not a real vampchain — it
-      # needs normally-funded test accounts to pay gas. See entrypoint.sh.
-      DEV_ACCOUNT_BALANCE_ETH: "10000"
+      CLIQUE_SIGNER_PRIVATE_KEY: "0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a"
+      TREASURY_ADDRESS: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
     ports:
       - "8545:8545"
     volumes:
@@ -56,6 +57,7 @@ services:
       L1_CHAIN_ID: "31337"
       BRIDGE_ADDRESS: "${BRIDGE_ADDRESS}"
       RELAYER_PRIVATE_KEY: "${RELAYER_PRIVATE_KEY}"
+      TREASURY_PRIVATE_KEY: "${TREASURY_PRIVATE_KEY}"
       POLL_INTERVAL_MS: "3000"
       CONFIRMATIONS: "0"
     depends_on:
@@ -74,6 +76,7 @@ services:
       L1_CHAIN_ID: "31337"
       REGISTRY_ADDRESS: "${REGISTRY_ADDRESS}"
       PROVISIONER_PRIVATE_KEY: "${PROVISIONER_PRIVATE_KEY}"
+      CLIQUE_SIGNER_PRIVATE_KEY: "${CLIQUE_SIGNER_PRIVATE_KEY}"
       POLL_INTERVAL_MS: "5000"
       CONFIRMATIONS: "0"
       PROVISION_BACKEND: local-docker
