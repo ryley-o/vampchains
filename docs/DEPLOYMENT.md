@@ -205,6 +205,17 @@ you hit something similar:
   The weaker KDF costs nothing security-wise here — the password only
   protects a keystore file at rest on our own volume; the real secret is the
   private key that went in, not the file encryption.
+- **Fly's `iad` region can hit real capacity limits** — seen twice in one
+  session as two different errors (`insufficient resources to create new
+  machine with existing volume`, then `insufficient CPUs available to
+  fulfill request`) on plain retries of the exact same machine spec that
+  had worked minutes earlier. Confirmed it wasn't our config by manually
+  running `fly machine run` by hand and hitting the identical error.
+  Creating a fresh app + volume in `ord` instead worked immediately.
+  `vampchains-provisioner`'s `FLY_REGION` secret is set to `ord` for this
+  reason — if provisioning starts failing with an "insufficient
+  resources"/"insufficient CPUs" error again, it's very likely this, not a
+  bug; try a different region before debugging the code.
 
 ### 4. Vercel: the web app
 
