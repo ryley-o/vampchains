@@ -94,11 +94,13 @@ fly secrets set -a vampchains-rpc-gateway DATABASE_URL=...
 fly deploy --config infra/rpc-gateway/fly.toml --dockerfile infra/rpc-gateway/Dockerfile
 ```
 
-Use **separate** keys/wallets for `RELAYER_PRIVATE_KEY` and
-`PROVISIONER_PRIVATE_KEY` — the relayer's key can move bridged funds
-(`VampBridge.release`), the provisioner's can only call the permissionless
-`deactivateIfDepleted` and needs gas money, nothing more. Don't reuse the
-contract deployer's key for either in production.
+Use **separate** keys for `RELAYER_PRIVATE_KEY` and
+`PROVISIONER_PRIVATE_KEY`. `RELAYER_PRIVATE_KEY` is a pure EIP-712 signing
+key — it authorizes `VampBridge.claim()` calls (whoever holds it decides
+what's claimable) but never submits a transaction itself and never needs
+ETH. `PROVISIONER_PRIVATE_KEY` calls the permissionless
+`deactivateIfDepleted` and does need a small amount of gas money. Don't
+reuse the contract deployer's key for either in production.
 
 `FLY_API_TOKEN` for the provisioner needs org-level permission to create
 apps/machines/volumes — treat it like the relayer key, not a throwaway.
@@ -148,11 +150,13 @@ hit something similar:
   Fixed: `pollWithdrawals` in `infra/relayer` no longer takes a
   confirmations parameter; it always scans up to the sidechain's current
   tip.
-- **Fund the relayer and provisioner wallets with gas ETH, not just the
-  deployer.** Obvious in hindsight, easy to forget: `VampBridge.release` and
-  `deactivateIfDepleted` are real signed transactions the relayer/provisioner
-  submit themselves, so those wallets need their own small ETH balance —
-  the deployer's balance doesn't cover them.
+- **Fund the provisioner wallet with gas ETH, not just the deployer.**
+  Obvious in hindsight, easy to forget: `deactivateIfDepleted` is a real
+  signed transaction the provisioner submits itself, so it needs its own
+  small ETH balance — the deployer's balance doesn't cover it. (This used
+  to apply to the relayer too, for `VampBridge.release`; the pull-claim
+  redesign — see `docs/ARCHITECTURE.md` — removed that requirement
+  entirely. `RELAYER_PRIVATE_KEY` only ever signs now, never needs ETH.)
 - **`docker push` directly to `registry.fly.io/<app>` failed with `app
   repository not found`** even after `fly auth docker`, for a brand-new
   app's very first image. `fly deploy --build-only --push --local-only

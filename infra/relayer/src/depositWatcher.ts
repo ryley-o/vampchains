@@ -80,15 +80,33 @@ async function handleDeposit(log: {
       },
     }));
 
-  await mintOnSidechain(chain.rpcUrl, recipient, amount);
+  const nativeAmount = scaleToNativeUnits(amount, chain.baseTokenDecimals);
+  await mintOnSidechain(chain.rpcUrl, recipient, nativeAmount);
   await prisma.depositEvent.update({ where: { id: record.id }, data: { mintedAt: new Date() } });
-  console.log(`[deposits] minted ${amount} to ${recipient} on chain ${chainId} (tx ${txHash})`);
+  console.log(
+    `[deposits] minted ${amount} raw units (${chain.baseTokenDecimals} decimals) as ${nativeAmount} native wei to ${recipient} on chain ${chainId} (tx ${txHash})`
+  );
 }
 
-async function mintOnSidechain(rpcUrl: string, recipient: Address, amount: bigint) {
+/// Native currency on every vampchain is always treated as 18-decimal, the
+/// same as ETH — that's what wallets/tooling assume for any EVM chain's
+/// native asset, regardless of what the underlying base token's own
+/// `decimals()` says. Most real ERC20s are NOT 18 decimals (USDC/USDT are
+/// 6), so a raw unit-for-unit mint would be off by orders of magnitude —
+/// e.g. depositing 100 USDC (100_000_000 raw units) would mint a balance
+/// that displays as 0.0000000000001 in any wallet instead of 100. Scale up
+/// to 18-decimal terms so the native balance always displays correctly.
+function scaleToNativeUnits(rawAmount: bigint, tokenDecimals: number): bigint {
+  if (tokenDecimals > 18) {
+    throw new Error(`base token has ${tokenDecimals} decimals; only tokens with <= 18 decimals are supported`);
+  }
+  return rawAmount * 10n ** BigInt(18 - tokenDecimals);
+}
+
+async function mintOnSidechain(rpcUrl: string, recipient: Address, nativeAmount: bigint) {
   const sideClient = createPublicClient({ transport: http(rpcUrl) });
   const current = await sideClient.getBalance({ address: recipient });
-  const next = current + amount;
+  const next = current + nativeAmount;
   await sideClient.request({
     // @ts-expect-error anvil_setBalance is an anvil-specific RPC method, not part of viem's standard typed methods
     method: "anvil_setBalance",

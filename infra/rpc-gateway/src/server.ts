@@ -66,6 +66,37 @@ export function createGatewayServer(config: GatewayConfig) {
       return;
     }
 
+    const claimMatch = req.url?.match(/^\/claims\/(0x[0-9a-fA-F]{64})\/?$/);
+    if (req.method === "GET" && claimMatch) {
+      if (!limiter.tryConsume(clientIp(req))) {
+        res.writeHead(429, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "rate limit exceeded" }));
+        return;
+      }
+
+      const sidechainTxHash = claimMatch[1]!;
+      const withdrawal = await prisma.withdrawalEvent.findUnique({ where: { sidechainTxHash } });
+
+      if (!withdrawal || !withdrawal.signature) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ status: "pending" }));
+        return;
+      }
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          status: "ready",
+          chainId: withdrawal.chainId.toString(),
+          to: withdrawal.to,
+          amount: withdrawal.amount,
+          sidechainTxHash: withdrawal.sidechainTxHash,
+          signature: withdrawal.signature,
+        })
+      );
+      return;
+    }
+
     const match = req.url?.match(/^\/rpc\/(\d+)\/?$/);
     if (req.method !== "POST" || !match) {
       res.writeHead(404, { "Content-Type": "application/json" });

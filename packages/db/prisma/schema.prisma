@@ -82,8 +82,14 @@ model DepositEvent {
   @@index([mintedAt])
 }
 
-/// Sidechain burns the relayer has observed, and whether the corresponding
-/// L1 VampBridge.release has been executed yet.
+/// Sidechain burns the relayer has observed. `signature` is the EIP-712
+/// claim signature once the relayer has produced it — infra/rpc-gateway
+/// serves it to the frontend, which submits it to VampBridge.claim() via
+/// the user's own wallet (they pay the L1 gas, not us). We don't currently
+/// index the resulting on-chain Claimed event back into claimTxHash/claimedAt
+/// (the contract's `claimed(sidechainTxHash)` is the source of truth for
+/// whether a claim has actually happened) — those columns are reserved for
+/// if/when that gets built.
 model WithdrawalEvent {
   id      Int   @id @default(autoincrement())
   chain   Chain @relation(fields: [chainDbId], references: [id])
@@ -94,15 +100,17 @@ model WithdrawalEvent {
   sidechainBlock  BigInt
 
   to     String
-  amount String // uint256 as decimal string
+  amount String // uint256 as decimal string, in the base token's own decimals
 
-  releaseTxHash String?
-  releasedAt    DateTime?
+  signature String? // EIP-712 claim signature, set once the relayer has signed
+
+  claimTxHash String?
+  claimedAt   DateTime?
 
   createdAt DateTime @default(now())
 
   @@index([chainId])
-  @@index([releasedAt])
+  @@index([claimedAt])
 }
 
 /// Registry-level funding history (chain creation, top-ups, protocol

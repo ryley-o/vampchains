@@ -5,13 +5,14 @@ import { prisma } from "@vampchains/db";
 import { loadConfig, type RelayerConfig } from "./config.js";
 import { pollDeposits } from "./depositWatcher.js";
 import { pollWithdrawals } from "./withdrawalWatcher.js";
-import { makeL1WalletClient, type L1WalletClient } from "./l1WalletClient.js";
+
+type SigningAccount = ReturnType<typeof privateKeyToAccount>;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function tick(l1Public: PublicClient, l1Wallet: L1WalletClient, cfg: RelayerConfig) {
+async function tick(l1Public: PublicClient, signingAccount: SigningAccount, cfg: RelayerConfig) {
   try {
     await pollDeposits(l1Public, cfg.bridgeAddress, cfg.confirmations);
   } catch (err) {
@@ -28,7 +29,7 @@ async function tick(l1Public: PublicClient, l1Wallet: L1WalletClient, cfg: Relay
 
   for (const chain of activeChains) {
     try {
-      await pollWithdrawals(chain, l1Wallet, cfg.bridgeAddress, cfg.burnAddress);
+      await pollWithdrawals(chain, signingAccount, cfg.l1ChainId, cfg.bridgeAddress, cfg.burnAddress);
     } catch (err) {
       console.error(`[withdrawals] poll failed for chain ${chain.chainId}:`, err);
     }
@@ -37,12 +38,15 @@ async function tick(l1Public: PublicClient, l1Wallet: L1WalletClient, cfg: Relay
 
 async function main() {
   const cfg = loadConfig();
+  // Pure local signing account — never submits a transaction, never needs
+  // ETH. Deposits are minted via anvil_setBalance (free), and withdrawals
+  // are now claim signatures (also free) rather than pushed release() txs.
+  // This relayer process has no L1 gas dependency at all.
   const account = privateKeyToAccount(cfg.relayerPrivateKey);
   const l1Public: PublicClient = createPublicClient({ transport: http(cfg.l1RpcUrl) });
-  const l1Wallet = makeL1WalletClient(account, cfg.l1ChainId, cfg.l1RpcUrl);
 
   console.log(
-    `vampchains relayer starting: relayer=${account.address} bridge=${cfg.bridgeAddress} l1=${cfg.l1RpcUrl} pollMs=${cfg.pollIntervalMs}`
+    `vampchains relayer starting: signer=${account.address} bridge=${cfg.bridgeAddress} l1=${cfg.l1RpcUrl} pollMs=${cfg.pollIntervalMs}`
   );
 
   let running = true;
@@ -54,7 +58,7 @@ async function main() {
   process.on("SIGTERM", shutdown);
 
   while (running) {
-    await tick(l1Public, l1Wallet, cfg);
+    await tick(l1Public, account, cfg);
     await sleep(cfg.pollIntervalMs);
   }
 

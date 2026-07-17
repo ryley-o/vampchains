@@ -69,38 +69,102 @@ since they only depend on "a chain with a JSON-RPC endpoint."
 **`VampBridge.sol`**
 - `deposit(uint256 chainId, uint256 amount, address recipient)` — locks the
   chain's base token, requires the chain to be active, emits `Deposited`.
-  Tracks `lockedBalance[chainId]` as an accounting ceiling for releases.
-- `release(uint256 chainId, address to, uint256 amount, bytes32 sidechainTxHash)`
-  — `onlyRelayer`, replay-guarded on `sidechainTxHash`, capped by
-  `lockedBalance[chainId]`. This is the honest trust model: **the bridge's
-  security is "trust us," full stop** — we're a single relayer key, not a
-  light-client or multisig-verified bridge. That's fine for a meme project
-  with token-native (not real-money) stakes, but it must never be
-  soft-pedaled to users. The relayer key should live in a KMS/secrets
-  manager, not a plaintext env var, once this is more than a toy.
+  Credits `lockedBalance[chainId]` with the *actual balance delta received*
+  (measured before/after the transfer), not the nominal `amount` requested —
+  safe against fee-on-transfer/deflationary tokens that deliver less than
+  what was sent, so the bridge can never be tricked into thinking it holds
+  more than it actually does. `SafeTransferLib` (not raw `IERC20` calls)
+  handles tokens like USDT that don't return a `bool` from
+  `transfer`/`transferFrom`/`approve`.
+- **Withdrawals are pull-based, not push-based.** `claim(uint256 chainId,
+  address to, uint256 amount, bytes32 sidechainTxHash, bytes signature)` is
+  permissionless — anyone can call it — but only succeeds with a valid
+  EIP-712 signature from `signer` over exactly `(chainId, to, amount,
+  sidechainTxHash)`. In practice `to` calls it themselves from their own
+  wallet, paying their own gas; funds always land on the `to` address bound
+  into the signature regardless of who submits the transaction, so nothing
+  is lost by making it callable by anyone. Replay-guarded on
+  `sidechainTxHash` via a `claimed` mapping, capped by `lockedBalance[chainId]`.
+  This replaced an earlier `release()` design where the relayer pushed the
+  transaction itself — see "Bridge withdrawals: pull, not push" below for
+  why.
 - `onlyOwner` pause switch, solady `ReentrancyGuard` on both entry points.
 
-Both contracts use solady (`Ownable`, `SafeTransferLib`, `ReentrancyGuard`)
-pulled in via soldeer, plus `forge-std` for tests.
+Both contracts use solady (`Ownable`, `SafeTransferLib`, `ReentrancyGuard`,
+`EIP712`, `ECDSA`) pulled in via soldeer, plus `forge-std` for tests.
+
+#### Bridge withdrawals: pull, not push
+
+The first version had the relayer call `release()` directly — a real,
+relayer-submitted L1 transaction for every single withdrawal, paid for by
+us, forever, scaling with volume. Nobody asked for that cost model; it was
+just the simplest thing to build first, and it surfaced as a real problem
+the moment this got deployed for real (the relayer's L1 wallet needed
+constant gas top-ups to keep withdrawals flowing).
+
+The fix: the relayer no longer submits *any* L1 transaction, for deposits
+or withdrawals. It only ever signs. Concretely:
+- Deposits mint via `anvil_setBalance` — never a real transaction, free
+  either way, unaffected by this change.
+- Withdrawals: the relayer watches for a burn on the vampchain, then signs
+  an EIP-712 `Claim(uint256 vampChainId, address to, uint256 amount, bytes32
+  sidechainTxHash)` message and publishes `{to, amount, sidechainTxHash,
+  signature}` (via `infra/rpc-gateway`'s `/claims/:sidechainTxHash`). The
+  recipient submits that to `VampBridge.claim()` themselves, from their own
+  wallet, paying their own gas.
+
+Net effect: the relayer's private key never needs to hold ETH at all — it's
+a pure signing key. The **trust model is unchanged** (whoever holds that key
+still unilaterally decides what's claimable; a compromised key is just as
+bad as before), but the **cost model** moves from "we pay per withdrawal,
+forever" to "we pay nothing, ever, for withdrawals." This is also just the
+standard shape of most real L2 withdrawal UX (Arbitrum, Optimism, Hop all
+work this way) — burn/initiate, wait briefly, claim — so it wasn't a novel
+design, just one we should have started with.
+
+The domain separator binds `verifyingContract` (this specific `VampBridge`
+deployment) and `chainId` (the home chain's own EVM chain id, e.g. Base
+Sepolia's `84532`) — a signature minted for one bridge deployment or one
+network cannot be replayed against another. Every field of the signed
+message — `vampChainId`, `to`, `amount`, `sidechainTxHash` — is covered, so
+tampering with any single field on the way to `claim()` invalidates the
+signature rather than silently doing the wrong thing. All of this is
+exercised directly in `contracts/test/VampBridge.t.sol` (wrong signer,
+every field tampered independently, cross-contract replay, cross-chain
+replay, replay via `claimed`).
 
 ### `infra/sidechain-node/`
 
 Dockerfile wrapping `anvil --chain-id <id> --state /data/state.json
---block-time <n> --host 0.0.0.0`. State volume persists balances/contracts
-across restarts. One Fly app (or Fly machine) per vampchain.
+--block-time <n> --host ::`. Bound to the IPv6 wildcard, not `0.0.0.0` —
+Fly's private network is IPv6-only, and a process bound only to the IPv4
+wildcard is unreachable from other apps over `.internal` even though it
+works fine locally (this bit us during the first real deployment; see
+`docs/DEPLOYMENT.md`). State volume persists balances/contracts across
+restarts. One Fly app (and machine) per vampchain.
 
 ### `infra/relayer/`
 
 Node/TS service, single shared process for *all* vampchains (not one per
-chain — keeps cost down). Loads active chains from Postgres, for each chain:
+chain — keeps cost down), and — as of the pull-claim redesign above — one
+with no L1 gas dependency at all. Loads active chains from Postgres, for
+each chain:
 - watches `VampBridge` `Deposited` events filtered to that `chainId` on the
   home chain → calls `anvil_setBalance` on the vampchain RPC to credit
-  `recipient`.
+  `recipient`, scaled to 18 decimals regardless of the base token's own
+  `decimals()` (native currency on any EVM chain is always assumed
+  18-decimal by wallets/tooling; USDC/USDT-style 6-decimal tokens would
+  otherwise mint a balance that displays as roughly zero).
 - watches the vampchain RPC for transfers to the burn address
-  (`0x000...dEaD`) → calls `VampBridge.release` on the home chain.
+  (`0x000...dEaD`) → signs an EIP-712 claim (scaled back down to the base
+  token's own decimals) for the recipient to submit to `VampBridge.claim()`.
 
 Deliberately simple/polling-based for v1 (no reorg handling beyond a
-confirmation-depth delay) — documented as a known gap, not silently ignored.
+confirmation-depth delay on the L1 side; deliberately *no* confirmation
+delay on the sidechain side, since a single-node anvil chain has no reorg
+risk and waiting for confirmations that only accrue on new activity can
+stall forever on a quiet chain) — documented as a known gap, not silently
+ignored.
 
 **Must run somewhere on Fly's private network** (deployed as its own small
 Fly app, in the same Fly org as the vampchain nodes) because it needs
@@ -131,6 +195,12 @@ persistent instances, not serverless, so there's no cross-instance state
 problem to solve), and forwards the request. The web app's chain pages and
 any wallet/dApp use this gateway's public URL directly as "the" RPC endpoint
 for a vampchain — no separate proxy layer needed in Next.js.
+
+`GET /claims/:sidechainTxHash` serves the signed withdrawal claim once the
+relayer has produced one for that burn tx (`{status: "pending"}` until
+then, `{status: "ready", chainId, to, amount, sidechainTxHash, signature}`
+after) — the read side of the pull-claim design above. Rate-limited the
+same way as the RPC path.
 
 ### `infra/provisioner/`
 
@@ -181,11 +251,26 @@ drawn down linearly so nobody can be charged for service not yet rendered.
 
 ## Known limitations (v1, by design — revisit before this holds real value)
 
-- Bridge trust model is a single relayer key, not verified. Documented, not
-  hidden.
+- Bridge trust model is a single signer key, not verified. Documented, not
+  hidden — see "Bridge withdrawals: pull, not push" above. That redesign
+  removed the relayer's ongoing L1 gas cost, but did **not** change who you
+  have to trust: whoever holds the signer key still unilaterally decides
+  what's claimable.
 - Only the chain's designated base token can bridge in/out. Bridging
   arbitrary other ERC20s onto a vampchain is future work (mentioned in the
   original brief as a "maybe eventually").
+- Fee-on-transfer/deflationary tokens are handled correctly on deposit
+  (balance-delta accounting). **Rebasing tokens are not** — a token whose
+  balance changes without a transfer (e.g. stETH-style) would drift out of
+  sync with `lockedBalance` over time with no transfer event to trigger a
+  resync. Don't create a vampchain backed by a rebasing token.
+- Withdrawal amounts that aren't an exact multiple of the base token's
+  `10^(18-decimals)` native-unit scale lose the remainder as unclaimable
+  dust (rounds down). Negligible for anything with reasonable decimals, but
+  real.
+- The on-chain `Claimed` event isn't indexed back into Postgres yet
+  (`WithdrawalEvent.claimTxHash`/`claimedAt` stay empty) — `VampBridge.claimed(sidechainTxHash)`
+  on chain is the real source of truth for whether a claim happened.
 - anvil-based nodes: no p2p, no real multi-node consensus, dev-grade EVM
   implementation.
 - The rpc-gateway's per-IP rate limiting is in-process memory; fine at one
