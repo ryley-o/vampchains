@@ -19,10 +19,10 @@ function appName(chain: ChainRow): string {
 
 /// Provisions one Fly app + one Fly Machine per vampchain via the Fly
 /// Machines REST API (https://api.machines.dev/v1). Verified live against a
-/// real Fly org (with the anvil-based image) — provisioning a real per-chain
-/// app/machine on demand actually works end to end. Re-verify after the
-/// geth migration before trusting it again, same as everything else that
-/// touched the sidechain-node image.
+/// real Fly org, both with the original anvil-based image and again after
+/// the geth migration — provisioning a real per-chain app/machine on demand
+/// actually works end to end, including a full deposit -> treasury-signed
+/// mint -> burn -> claim round trip against a live geth-based vampchain.
 export class FlyProvisioner implements Provisioner {
   constructor(private opts: FlyOptions) {}
 

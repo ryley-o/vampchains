@@ -15,11 +15,11 @@ known limitations.
 ## Layout
 
 ```
-contracts/   Foundry project: VampChainRegistry + VampBridge (soldeer + solady), 67 tests
+contracts/   Foundry project: VampChainRegistry + VampBridge (soldeer + solady), 75 tests
 web/         Next.js app: browse/create chains, bridge UI, minimal explorer
 infra/
-  sidechain-node/  Dockerized anvil node = one vampchain
-  relayer/         watches L1 deposits -> mints on vampchain; watches burns -> releases on L1
+  sidechain-node/  Dockerized geth (Clique PoA) node = one vampchain
+  relayer/         watches L1 deposits -> mints on vampchain; watches burns -> signs L1 claims
   rpc-gateway/     the only public entrypoint into a vampchain's RPC (method-filtered, rate-limited)
   provisioner/     turns registry events into running containers/Fly machines, reaps unfunded chains
 packages/db/ Prisma schema + client shared by web/relayer/provisioner
@@ -42,17 +42,18 @@ per-vampchain containers the provisioner created).
 
 This full loop — create a chain, watch the provisioner spin up a real
 container for it, bridge a token in and see the relayer mint it, burn it on
-the vampchain and see the relayer release it back on L1, all through the
-public rpc-gateway — was run end-to-end against the dockerized stack while
-building this; see `docs/ARCHITECTURE.md` and each component's README for
-what was specifically verified.
+the vampchain and see the relayer sign a claim you submit yourself to get it
+back on L1, all through the public rpc-gateway — was run end-to-end against
+the dockerized stack while building this; see `docs/ARCHITECTURE.md` and
+each component's README for what was specifically verified.
 
 See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for taking this to real infra
 (Neon, Vercel, Fly.io).
 
 ## Status
 
-Early, unaudited, no live/mainnet deployments. Contracts have a full Foundry
-test suite (`cd contracts && forge test`, 67 tests, 100% line coverage on
+Early, unaudited, no mainnet deployment (verified live end-to-end on Base
+Sepolia testnet — see `docs/DEPLOYMENT.md`). Contracts have a full Foundry
+test suite (`cd contracts && forge test`, 75 tests, 100% line coverage on
 `VampBridge`) but have not been externally audited — do not point real funds
 at this on mainnet without an audit.

@@ -1,11 +1,11 @@
 /// Everything a normal wallet/dApp legitimately needs, and nothing else.
-/// Deliberately excludes the entire `anvil_*`/`evm_*`/`debug_*`/`trace_*`/
-/// `personal_*`/`miner_*` admin namespaces — `anvil_setBalance` in
-/// particular is the relayer's mint primitive, and if it (or its siblings)
-/// were reachable through this public gateway, anyone could self-mint
-/// native currency and bypass VampBridge entirely. This allowlist is the
-/// security boundary that makes it safe for this gateway to be public while
-/// the vampchain nodes themselves stay off the public internet.
+/// Deliberately excludes the entire `personal_*`/`miner_*`/`admin_*`/
+/// `debug_*`/`txpool_*` namespaces — the Clique signer's unlocked account
+/// is how deposits get minted, and if account-management methods were
+/// reachable through this public gateway, anyone could self-mint native
+/// currency and bypass VampBridge entirely. This allowlist is the security
+/// boundary that makes it safe for this gateway to be public while the
+/// vampchain nodes themselves stay off the public internet.
 export const ALLOWED_METHODS: ReadonlySet<string> = new Set([
   "web3_clientVersion",
   "net_version",

@@ -8,39 +8,103 @@
    annual fee in USDC (default $1,000/yr, owner-adjustable to track real
    infra cost — see "Economics" below).
 3. That pays for us to run a **vampchain**: a single-node EVM sidechain whose
-   native gas currency is that ERC20 token. One anvil node in Docker, one
-   rate-limited RPC endpoint, one tiny built-in block explorer, all served
-   from Fly.io.
+   native gas currency is that ERC20 token. One geth node (Clique
+   proof-of-authority) in Docker, one rate-limited RPC endpoint, one tiny
+   built-in block explorer, all served from Fly.io.
 4. To get the base currency onto the vampchain, you deposit the ERC20 into
    `VampBridge` on the home chain. Our relayer sees the deposit and mints you
-   the equivalent native balance on the vampchain. To go back, you send native
-   currency to a well-known burn address on the vampchain; the relayer sees
-   that and releases the ERC20 back to you on the home chain.
+   the equivalent native balance on the vampchain via a real signed transfer
+   from a shared treasury account. To go back, you send native currency to
+   that same treasury address on the vampchain (recapture, not destroy — see
+   "Why geth Clique PoA" below); the relayer sees that and signs a claim you
+   submit yourself to get the ERC20 back on the home chain.
 5. Funding is public and permissionless top-up (`VampChainRegistry.topUp`).
    Anyone can watch a chain's remaining runway on-chain and prevent it being
    torn down by topping it up. We (the protocol) can only withdraw fee
    *already earned* by elapsed time, never the unearned/future portion — so
    the worst thing we can do is take money for time already served.
 
-## Why anvil, not a "real" L2 stack
+## Why geth Clique PoA, not a "real" L2 stack
 
 We explicitly do not run op-geth/reth/Polygon-Edge style rollup stacks for
-v1. `anvil` (part of Foundry) run persistently with `--state <file>` is:
+v1 — no state posting, no sequencer, no L1 data-availability cost, which
+doesn't make sense for a meme chain. v1 originally ran plain `anvil`
+(Foundry's dev node), minting deposits via its `anvil_setBalance` cheat
+code. That was replaced with **geth in Clique (single-signer
+proof-of-authority) mode**, for a real embedded database (LevelDB via
+geth's own storage layer, not anvil's simpler in-memory/JSON-dump model)
+while staying just as lightweight to run — still one small Docker
+container, still no p2p peers beyond the single signer
+(`--nodiscover --maxpeers 0`).
 
-- a full EVM, JSON-RPC compatible, good enough for a meme chain
-- trivial to run in a single Docker container
-- has `anvil_setBalance`, which we (ab)use as the mint primitive for the
-  bridge instead of building a custom precompile/genesis-alloc mechanism
+This is a real execution client, not a dev tool, so it needed two real
+changes beyond just swapping the binary:
 
-The tradeoff: anvil is a dev tool, not hardened production infra. It has no
-p2p, no real finality, and if we run more than one node they are not
-consensus-connected — "two nodes" would just be two independent instances
-behind a load balancer, which is *not* what the original single-node meme
-chain premise wants anyway. This is a deliberate, documented MVP shortcut.
-Swapping the node implementation later (e.g. to a minimal PoA geth chain with
-custom genesis alloc, or a real rollup) is an infra-layer change that
-shouldn't need to touch the registry/bridge contracts or the web app much,
-since they only depend on "a chain with a JSON-RPC endpoint."
+- **Minting**: no more `anvil_setBalance` cheat code (geth has no
+  equivalent). The relayer now mints deposits with a real signed
+  transaction — `value`-only, no calldata — from a shared **treasury**
+  account that's pre-funded with a large balance at each vampchain's
+  genesis. Real transaction, real gas, but the gas is paid in the
+  vampchain's own native currency, which we already control, so it costs
+  us nothing external.
+- **Withdrawals ("burn-and-claim") now recapture instead of destroy**: the
+  withdrawal-signal address changed from the conventional dead address
+  (`0x000...dEaD`) to the **treasury account itself**. A user "burns" by
+  sending native currency to the treasury; the relayer watches for that and
+  signs a claim the same way as before. Nothing is actually destroyed — it
+  goes back into the same pool deposits are minted from. Given each
+  vampchain is over-provisioned by design at genesis (a deliberately huge
+  balance nobody could plausibly drain), the small accounting benefit of
+  recapture isn't the point; the point is that EIP-1559's *base fee* is
+  still burned unconditionally by the protocol itself (that part can't be
+  redirected, on any EVM chain) — so gas is not literally free, it's a
+  documented, accepted cost against a treasury sized to absorb it
+  indefinitely. Priority fees (tips), by contrast, go to whoever mines the
+  block — see `--miner.etherbase` below.
+
+### Version pinning and its reasons (read before touching this)
+
+Getting a *legacy, single-signer, auto-mining* Clique network working on a
+recent geth turned out to have two separate traps, both confirmed by direct
+testing, not just reading changelogs:
+
+1. **geth v1.16.3+ removes `--unlock`/`--allow-insecure-unlock`.** Account
+   management moved to requiring an external Clef signer process for
+   security. That's real added operational complexity (a second process,
+   rule-based auto-approval config) not worth it for a low-stakes automated
+   meme-chain signer, so this project pins to an older line that still
+   supports the simple in-process unlock flow.
+2. **Any geth version that still has `--unlock`/`--mine` also requires the
+   chain to already be genesis-configured as fully post-London with no
+   `terminalTotalDifficulty` set (v1.16.0 fails outright without it — the
+   error message itself says "Please transition legacy networks using Geth
+   v1.13.x").** That's why this pins specifically to **v1.13.15**.
+3. **A pure legacy `--mine`-based Clique chain (no `terminalTotalDifficulty`
+   set) can never activate Shanghai or later.** Any *timestamp-based* fork
+   (Shanghai onward — needed for the `PUSH0` opcode Solidity now emits by
+   default) only turns on once geth considers the chain "post-merge," and
+   setting `terminalTotalDifficulty` to mark it as such flips block
+   production over to requiring Engine-API calls from an external
+   consensus client — the legacy auto-sealing loop stops firing entirely
+   (confirmed directly: block production froze at block 0 the moment TTD
+   was set). So the chain's genesis intentionally stops at London, and
+   `contracts/foundry.toml` pins `evm_version = "london"` to match —
+   Solidity compiled for an older EVM target still runs fine on any newer
+   chain (Base included), so this costs nothing on the L1 side.
+
+`--miner.etherbase` (where block rewards/tips go) must be an account geth
+holds the key for locally — it can't be set to an arbitrary external
+address. So it's set to the Clique signer's own address, not the treasury;
+this is a deliberate side benefit, not a workaround, because it means the
+treasury private key never has to be present on a sidechain-node container
+at all — it's only ever known to the relayer, which signs mint transfers
+off-node. Fee revenue this way is small and simply accrues to the (already
+shared, single) signer address across every vampchain.
+
+Swapping the node implementation again later (e.g. to a real rollup) is an
+infra-layer change that shouldn't need to touch the registry/bridge
+contracts or the web app much, since they only depend on "a chain with a
+JSON-RPC endpoint."
 
 ## Components
 
@@ -103,10 +167,14 @@ the moment this got deployed for real (the relayer's L1 wallet needed
 constant gas top-ups to keep withdrawals flowing).
 
 The fix: the relayer no longer submits *any* L1 transaction, for deposits
-or withdrawals. It only ever signs. Concretely:
-- Deposits mint via `anvil_setBalance` — never a real transaction, free
-  either way, unaffected by this change.
-- Withdrawals: the relayer watches for a burn on the vampchain, then signs
+or withdrawals. It only ever signs (or, for deposits, submits a
+sidechain-only transaction — see "Why geth Clique PoA" below for why that's
+not an L1 cost). Concretely:
+- Deposits mint via a real signed transfer from a treasury account, but
+  *on the vampchain*, never on the home chain — so this redesign doesn't
+  change that side at all.
+- Withdrawals: the relayer watches for a burn (transfer to the treasury
+  address) on the vampchain, then signs
   an EIP-712 `Claim(uint256 vampChainId, address to, uint256 amount, bytes32
   sidechainTxHash)` message and publishes `{to, amount, sidechainTxHash,
   signature}` (via `infra/rpc-gateway`'s `/claims/:sidechainTxHash`). The
@@ -135,13 +203,18 @@ replay, replay via `claimed`).
 
 ### `infra/sidechain-node/`
 
-Dockerfile wrapping `anvil --chain-id <id> --state /data/state.json
---block-time <n> --host ::`. Bound to the IPv6 wildcard, not `0.0.0.0` —
-Fly's private network is IPv6-only, and a process bound only to the IPv4
-wildcard is unreachable from other apps over `.internal` even though it
-works fine locally (this bit us during the first real deployment; see
-`docs/DEPLOYMENT.md`). State volume persists balances/contracts across
-restarts. One Fly app (and machine) per vampchain.
+Dockerfile wrapping geth (pinned `v1.13.15`, see "Why geth Clique PoA"
+above) in Clique single-signer mode: `--mine --miner.etherbase <signer>
+--unlock <signer> --http --http.addr :: ...`. Bound to the IPv6 wildcard,
+not `0.0.0.0` — Fly's private network is IPv6-only, and a process bound
+only to the IPv4 wildcard is unreachable from other apps over `.internal`
+even though it works fine locally (this bit us during the first real
+deployment; see `docs/DEPLOYMENT.md`). `entrypoint.sh` idempotently imports
+the Clique signer key into geth's keystore and runs `geth init` against a
+templated genesis (`genesis.template.json`, substituting chain id, signer
+address, and a large treasury pre-fund) on first boot only. State volume
+persists the full chain (blocks, state, keystore) across restarts. One Fly
+app (and machine) per vampchain.
 
 ### `infra/relayer/`
 
@@ -150,26 +223,33 @@ chain — keeps cost down), and — as of the pull-claim redesign above — one
 with no L1 gas dependency at all. Loads active chains from Postgres, for
 each chain:
 - watches `VampBridge` `Deposited` events filtered to that `chainId` on the
-  home chain → calls `anvil_setBalance` on the vampchain RPC to credit
-  `recipient`, scaled to 18 decimals regardless of the base token's own
-  `decimals()` (native currency on any EVM chain is always assumed
-  18-decimal by wallets/tooling; USDC/USDT-style 6-decimal tokens would
-  otherwise mint a balance that displays as roughly zero).
-- watches the vampchain RPC for transfers to the burn address
-  (`0x000...dEaD`) → signs an EIP-712 claim (scaled back down to the base
-  token's own decimals) for the recipient to submit to `VampBridge.claim()`.
+  home chain → sends a real signed transfer, from the shared treasury
+  account, on the vampchain RPC to credit `recipient`, scaled to 18
+  decimals regardless of the base token's own `decimals()` (native currency
+  on any EVM chain is always assumed 18-decimal by wallets/tooling;
+  USDC/USDT-style 6-decimal tokens would otherwise mint a balance that
+  displays as roughly zero).
+- watches the vampchain RPC for transfers to the treasury address (the
+  withdrawal-signal/"burn" address — see "Why geth Clique PoA" above for
+  why it's the treasury, not a dead address) → signs an EIP-712 claim
+  (scaled back down to the base token's own decimals) for the recipient to
+  submit to `VampBridge.claim()`.
 
 Deliberately simple/polling-based for v1 (no reorg handling beyond a
 confirmation-depth delay on the L1 side; deliberately *no* confirmation
-delay on the sidechain side, since a single-node anvil chain has no reorg
+delay on the sidechain side, since a single-node Clique chain has no reorg
 risk and waiting for confirmations that only accrue on new activity can
 stall forever on a quiet chain) — documented as a known gap, not silently
 ignored.
 
 **Must run somewhere on Fly's private network** (deployed as its own small
-Fly app, in the same Fly org as the vampchain nodes) because it needs
-unrestricted RPC access — including `anvil_setBalance` — to each vampchain's
-`.internal` address. It cannot run on Vercel.
+Fly app, in the same Fly org as the vampchain nodes) because it needs to
+reach each vampchain's `.internal` address directly, both to send treasury
+mint transfers and to watch for burns. It cannot run on Vercel. Its
+`TREASURY_PRIVATE_KEY` is a separate secret from `RELAYER_PRIVATE_KEY` (the
+EIP-712 claim-signing key) — see "Why geth Clique PoA" above for why the
+treasury key specifically must never be given to a sidechain-node
+container.
 
 ### `infra/rpc-gateway/`
 
@@ -178,15 +258,20 @@ bearing security boundary, not just a convenience proxy. Two facts drove
 this being its own always-on Fly service rather than a Vercel API route:
 
 1. **Vercel can't reach `.internal` addresses.** Vampchain nodes intentionally
-   have no public port (see `infra/sidechain-node`'s `fly.toml.template`) —
+   have no public port (see `infra/provisioner/src/provisioners/fly.ts`,
+   which builds each vampchain's Machine config directly via the Fly
+   Machines API — no `[[services.ports]]` public handler) —
    only reachable over Fly's private 6PN network. Something on that network
    has to be the bridge to the public internet.
-2. **The public RPC surface must never include anvil's admin namespace.**
-   `anvil_setBalance` is the relayer's mint primitive — if a vampchain's raw
-   RPC were reachable by end users, anyone could call it themselves and mint
-   unlimited native currency, completely bypassing `VampBridge`. The gateway
-   strictly allowlists safe `eth_*`/`net_*`/`web3_*` methods and rejects
-   `anvil_*`/`evm_*`/`debug_*` outright.
+2. **The public RPC surface must never include geth's admin/account
+   namespace.** The Clique signer's unlocked account is how deposits get
+   minted — if a vampchain's raw RPC were reachable by end users, anyone
+   with access to `personal_*`/`miner_*`-style methods could mint unlimited
+   native currency, completely bypassing `VampBridge`. The gateway is an
+   **allowlist**, not a denylist (`infra/rpc-gateway/src/allowlist.ts`) — it
+   accepts only a fixed, explicit set of read/submit `eth_*`/`net_*`/`web3_*`
+   methods, so nothing admin-shaped can reach it regardless of what the
+   underlying client exposes.
 
 `GET/POST /rpc/:chainId` looks up `Chain.rpcUrl`/`status` from Postgres,
 rejects if not `ACTIVE` or the method isn't allowlisted, rate-limits per IP
@@ -271,14 +356,16 @@ drawn down linearly so nobody can be charged for service not yet rendered.
 - The on-chain `Claimed` event isn't indexed back into Postgres yet
   (`WithdrawalEvent.claimTxHash`/`claimedAt` stay empty) — `VampBridge.claimed(sidechainTxHash)`
   on chain is the real source of truth for whether a claim happened.
-- anvil-based nodes: no p2p, no real multi-node consensus, dev-grade EVM
-  implementation.
+- Single-signer Clique PoA: no real multi-node consensus, no fault
+  tolerance if the one signer node goes down (matches the single-node
+  premise deliberately, but worth being explicit about).
 - The rpc-gateway's per-IP rate limiting is in-process memory; fine at one
   or two instances, would need a shared store (e.g. Redis) if it's ever
   scaled horizontally.
 - Deployed and verified end to end on **Base Sepolia (testnet)** — real
-  chain creation, provisioning, deposit/mint, and burn/release all confirmed
-  working against live Fly + Vercel + Neon infra. Still no mainnet
+  chain creation, provisioning, deposit/mint, and burn/claim all confirmed
+  working against live Fly + Vercel + Neon infra, both on the original
+  anvil-based stack and again after the geth migration. Still no mainnet
   deployment and no external audit; see `docs/DEPLOYMENT.md`'s "Update: the
-  `fly` backend has since been run for real" note for what that first real
-  deployment actually shook out (and fixed).
+  `fly` backend has since been run for real" note for what those real
+  deployments actually shook out (and fixed).

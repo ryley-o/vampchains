@@ -6,7 +6,7 @@ Foundry project, dependency-managed with soldeer (`solady`, `forge-std`).
 src/
   VampChainRegistry.sol   chain creation, USDC fee accounting/accrual, funding lifecycle
   VampBridge.sol           lock-and-mint / burn-and-release bridge for a chain's base token
-test/                      67 tests, 100% line coverage on VampBridge, ~95% on VampChainRegistry
+test/                      75 tests, 100% line coverage on VampBridge, ~95% on VampChainRegistry
 script/Deploy.s.sol        deploy script (see env vars in the file header)
 ```
 
@@ -30,6 +30,6 @@ forge script script/Deploy.s.sol --rpc-url <rpc> --broadcast --verify
 ```
 
 See [`../docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) for the design
-rationale (accrual math, trust model, why anvil-based sidechains).
+rationale (accrual math, trust model, why geth Clique PoA sidechains).
 
 **Not audited.** Do not deploy to mainnet with real funds without an audit.

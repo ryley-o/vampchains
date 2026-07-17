@@ -65,10 +65,15 @@ component needs them.
 fly auth login
 fly orgs create vampchains   # or use an existing org
 
-# Build once, every vampchain reuses this same image:
-docker build -t registry.fly.io/vampchains-sidechain-node:latest infra/sidechain-node
+# Build once, every vampchain reuses this same image. --platform
+# linux/amd64 matters if you're building on Apple Silicon — Fly's fleet is
+# amd64, and a plain `docker build` there produces an arm64-only image that
+# fails machine creation with no obviously-architecture-related error (see
+# the "real issues" list below).
 fly auth docker
-docker push registry.fly.io/vampchains-sidechain-node:latest
+docker buildx build --platform linux/amd64 \
+  -t registry.fly.io/vampchains-sidechain-node:latest \
+  --push infra/sidechain-node
 ```
 
 Deploy the three always-on services (each has a `fly.toml` + `Dockerfile`
@@ -78,13 +83,14 @@ already in its directory):
 fly apps create vampchains-relayer
 fly secrets set -a vampchains-relayer \
   DATABASE_URL=... L1_RPC_URL=... L1_CHAIN_ID=8453 \
-  BRIDGE_ADDRESS=0x... RELAYER_PRIVATE_KEY=0x...
+  BRIDGE_ADDRESS=0x... RELAYER_PRIVATE_KEY=0x... TREASURY_PRIVATE_KEY=0x...
 fly deploy --config infra/relayer/fly.toml --dockerfile infra/relayer/Dockerfile
 
 fly apps create vampchains-provisioner
 fly secrets set -a vampchains-provisioner \
   DATABASE_URL=... L1_RPC_URL=... L1_CHAIN_ID=8453 \
   REGISTRY_ADDRESS=0x... PROVISIONER_PRIVATE_KEY=0x... \
+  CLIQUE_SIGNER_PRIVATE_KEY=0x... \
   PROVISION_BACKEND=fly FLY_API_TOKEN=... FLY_ORG_SLUG=vampchains \
   SIDECHAIN_IMAGE=registry.fly.io/vampchains-sidechain-node:latest
 fly deploy --config infra/provisioner/fly.toml --dockerfile infra/provisioner/Dockerfile
@@ -94,13 +100,22 @@ fly secrets set -a vampchains-rpc-gateway DATABASE_URL=...
 fly deploy --config infra/rpc-gateway/fly.toml --dockerfile infra/rpc-gateway/Dockerfile
 ```
 
-Use **separate** keys for `RELAYER_PRIVATE_KEY` and
-`PROVISIONER_PRIVATE_KEY`. `RELAYER_PRIVATE_KEY` is a pure EIP-712 signing
-key — it authorizes `VampBridge.claim()` calls (whoever holds it decides
-what's claimable) but never submits a transaction itself and never needs
-ETH. `PROVISIONER_PRIVATE_KEY` calls the permissionless
-`deactivateIfDepleted` and does need a small amount of gas money. Don't
-reuse the contract deployer's key for either in production.
+Use **separate** keys for `RELAYER_PRIVATE_KEY`, `PROVISIONER_PRIVATE_KEY`,
+`TREASURY_PRIVATE_KEY`, and `CLIQUE_SIGNER_PRIVATE_KEY`. `RELAYER_PRIVATE_KEY`
+is a pure EIP-712 signing key — it authorizes `VampBridge.claim()` calls
+(whoever holds it decides what's claimable) but never submits a transaction
+itself and never needs ETH. `PROVISIONER_PRIVATE_KEY` calls the
+permissionless `deactivateIfDepleted` and does need a small amount of gas
+money. `TREASURY_PRIVATE_KEY` mints/recaptures native currency on every
+vampchain (gas paid in the vampchain's own native currency, never L1 ETH) —
+give it to the relayer only, never to `infra/sidechain-node`, so it never
+has to be present on a container reachable via the RPC gateway.
+`CLIQUE_SIGNER_PRIVATE_KEY` is baked into every vampchain node the
+provisioner creates and is deliberately the *same* key reused across every
+chain — it only proves block authorship on our own isolated single-node
+chains, it doesn't custody funds, so reuse here is fine (unlike the other
+three). Don't reuse the contract deployer's key for any of these in
+production.
 
 `FLY_API_TOKEN` for the provisioner needs org-level permission to create
 apps/machines/volumes — treat it like the relayer key, not a throwaway.
@@ -163,7 +178,31 @@ hit something similar:
   --depot=false --image-label latest` (from within the image's directory,
   with a throwaway `fly.toml` naming the app) went through a code path that
   worked; the same layers pushed via bare `docker push` afterward did not.
-  Stick to `fly deploy` for pushing images, not raw `docker push`.
+  Stick to `fly deploy` for pushing images, not raw `docker push`. (After
+  the app already exists, a plain `docker build && fly auth docker &&
+  docker push` does work for subsequent image updates — just not for that
+  very first image.)
+- **A plain `docker build` on Apple Silicon pushes an arm64-only image —
+  Fly's fleet is amd64.** Machine creation failed silently from the
+  provisioner's point of view (the Fly app and volume got created fine; only
+  the machine-create API call failed) with no obviously-architecture-related
+  error surfaced through `fly logs`. Confirmed via `docker manifest inspect
+  registry.fly.io/<app>:latest` showing `"architecture": "arm64"` only, no
+  `amd64` variant. Fix: build with `docker buildx build --platform
+  linux/amd64 ... --push` (not plain `docker build`) whenever pushing an
+  image built on an Apple Silicon Mac for Fly to run.
+- **`geth account import`'s default (standard) scrypt KDF needs a single
+  ~256MB allocation** for key-derivation alone — which by itself exceeds a
+  `shared-cpu-1x`/256MB Fly machine's entire memory budget and crashes the
+  Go runtime with an OOM panic (`runtime.throw` inside `mheap.alloc`) a few
+  seconds after boot, right as `infra/sidechain-node/entrypoint.sh` imports
+  the Clique signer key on first run. Reproduced locally with `docker run
+  --memory=256m` before shipping the fix. Fixed: pass `--lightkdf` to `geth
+  account import` (the resulting keystore file stores its own KDF
+  parameters, so no corresponding flag is needed at unlock/startup time).
+  The weaker KDF costs nothing security-wise here — the password only
+  protects a keystore file at rest on our own volume; the real secret is the
+  private key that went in, not the file encryption.
 
 ### 4. Vercel: the web app
 

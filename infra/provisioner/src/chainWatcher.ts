@@ -19,8 +19,8 @@ export async function pollNewChains(l1Client: PublicClient, registryAddress: Add
   const latest = await l1Client.getBlockNumber();
   const safeLatest = latest > BigInt(confirmations) ? latest - BigInt(confirmations) : 0n;
 
-  // On a fresh deployment against a live chain (not a brand-new local
-  // anvil), there's no reason to scan from block 1 — that's potentially
+  // On a fresh deployment against a live chain (not a brand-new local dev
+  // chain), there's no reason to scan from block 1 — that's potentially
   // millions of blocks of history we don't care about. Start from "now".
   const cursor = await prisma.indexerCursor.upsert({
     where: { id: CURSOR_ID },

@@ -19,7 +19,7 @@ type SigningAccount = ReturnType<typeof privateKeyToAccount>;
 /// VampBridge.sol's docs.
 ///
 /// Deliberately does NOT apply a confirmation delay here the way the L1
-/// watchers do — a vampchain is a single anvil node with no other
+/// watchers do — a vampchain is a single-signer Clique node with no other
 /// validators, so there's no reorg risk to wait out. Waiting for
 /// confirmations on a low-traffic chain that only mines a block per tx can
 /// stall forever (confirmations never accrue without new activity).

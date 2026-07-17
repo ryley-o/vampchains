@@ -41,7 +41,13 @@ if [ -z "$(ls -A "$STATE_DIR/keystore" 2>/dev/null)" ]; then
   PASSFILE="$STATE_DIR/.signer-password"
   printf '%s' "${CLIQUE_SIGNER_PRIVATE_KEY#0x}" > "$KEYFILE"
   printf 'vampchains' > "$PASSFILE"
-  geth account import --datadir "$STATE_DIR" --password "$PASSFILE" "$KEYFILE"
+  # --lightkdf: standard scrypt params for keystore encryption need a single
+  # ~256MB allocation, which alone exceeds this container's whole memory
+  # budget (256MB machines) and crashes the Go runtime with an OOM panic —
+  # confirmed by hitting it on a live Fly deploy. The password only protects
+  # the keystore file at rest on our own volume (see the note above), so the
+  # weaker KDF costs nothing security-wise here.
+  geth account import --datadir "$STATE_DIR" --password "$PASSFILE" --lightkdf "$KEYFILE"
   rm -f "$KEYFILE"
 fi
 PASSFILE="$STATE_DIR/.signer-password"

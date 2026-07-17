@@ -11,14 +11,15 @@ addresses.
 anything isn't allowlisted), rate-limits per client IP, then forwards
 verbatim to the chain's internal RPC.
 
-**This allowlist is a security boundary, not a convenience filter.**
-`anvil_setBalance` is the relayer's mint primitive; if it were reachable
-here, anyone could self-mint native currency and bypass `VampBridge`
-entirely. Verified live in this session:
+**This allowlist is a security boundary, not a convenience filter.** The
+Clique signer's unlocked account is how deposits get minted; if
+account-management methods were reachable here, anyone could self-mint
+native currency and bypass `VampBridge` entirely. Verified live in this
+session:
 
 - `eth_chainId` (allowed) forwards correctly.
-- `anvil_setBalance` (not allowed) is rejected with a JSON-RPC error and
-  never reaches the node — confirmed the target balance was unchanged
+- `personal_unlockAccount` (not allowed) is rejected with a JSON-RPC error
+  and never reaches the node — confirmed no account state changed
   afterward.
 - Rate limiting: with `RATE_LIMIT_CAPACITY=5`, requests 1–5 returned `200`,
   requests 6–8 returned `429`.
