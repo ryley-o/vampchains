@@ -26,41 +26,35 @@
 
 ## Why geth Clique PoA, not a "real" L2 stack
 
-We explicitly do not run op-geth/reth/Polygon-Edge style rollup stacks for
-v1 — no state posting, no sequencer, no L1 data-availability cost, which
-doesn't make sense for a meme chain. v1 originally ran plain `anvil`
-(Foundry's dev node), minting deposits via its `anvil_setBalance` cheat
-code. That was replaced with **geth in Clique (single-signer
-proof-of-authority) mode**, for a real embedded database (LevelDB via
-geth's own storage layer, not anvil's simpler in-memory/JSON-dump model)
-while staying just as lightweight to run — still one small Docker
-container, still no p2p peers beyond the single signer
+We explicitly do not run op-geth/reth/Polygon-Edge style rollup stacks —
+no state posting, no sequencer, no L1 data-availability cost, which
+doesn't make sense for a meme chain. Instead, each vampchain is
+**geth in Clique (single-signer proof-of-authority) mode**: a real embedded
+database (LevelDB via geth's own storage layer), still lightweight to run —
+one small Docker container, no p2p peers beyond the single signer
 (`--nodiscover --maxpeers 0`).
 
-This is a real execution client, not a dev tool, so it needed two real
-changes beyond just swapping the binary:
+Two mechanisms make this work as a real execution client rather than a dev
+sandbox:
 
-- **Minting**: no more `anvil_setBalance` cheat code (geth has no
-  equivalent). The relayer now mints deposits with a real signed
-  transaction — `value`-only, no calldata — from a shared **treasury**
-  account that's pre-funded with a large balance at each vampchain's
-  genesis. Real transaction, real gas, but the gas is paid in the
-  vampchain's own native currency, which we already control, so it costs
-  us nothing external.
-- **Withdrawals ("burn-and-claim") now recapture instead of destroy**: the
-  withdrawal-signal address changed from the conventional dead address
-  (`0x000...dEaD`) to the **treasury account itself**. A user "burns" by
-  sending native currency to the treasury; the relayer watches for that and
-  signs a claim the same way as before. Nothing is actually destroyed — it
-  goes back into the same pool deposits are minted from. Given each
-  vampchain is over-provisioned by design at genesis (a deliberately huge
-  balance nobody could plausibly drain), the small accounting benefit of
-  recapture isn't the point; the point is that EIP-1559's *base fee* is
-  still burned unconditionally by the protocol itself (that part can't be
-  redirected, on any EVM chain) — so gas is not literally free, it's a
-  documented, accepted cost against a treasury sized to absorb it
-  indefinitely. Priority fees (tips), by contrast, go to whoever mines the
-  block — see `--miner.etherbase` below.
+- **Minting**: deposits mint via a real signed transaction — `value`-only,
+  no calldata — from a shared **treasury** account that's pre-funded with a
+  large balance at each vampchain's genesis. Real transaction, real gas,
+  but the gas is paid in the vampchain's own native currency, which we
+  already control, so it costs us nothing external.
+- **Withdrawals ("burn-and-claim") recapture instead of destroy**: the
+  withdrawal-signal address is the **treasury account itself**, not the
+  conventional dead address (`0x000...dEaD`). A user "burns" by sending
+  native currency to the treasury; the relayer watches for that and signs a
+  claim. Nothing is actually destroyed — it goes back into the same pool
+  deposits are minted from. Given each vampchain is over-provisioned by
+  design at genesis (a deliberately huge balance nobody could plausibly
+  drain), the small accounting benefit of recapture isn't the point; the
+  point is that EIP-1559's *base fee* is still burned unconditionally by
+  the protocol itself (that part can't be redirected, on any EVM chain) —
+  so gas is not literally free, it's a documented, accepted cost against a
+  treasury sized to absorb it indefinitely. Priority fees (tips), by
+  contrast, go to whoever mines the block — see `--miner.etherbase` below.
 
 ### Version pinning and its reasons (read before touching this)
 
@@ -364,8 +358,7 @@ drawn down linearly so nobody can be charged for service not yet rendered.
   scaled horizontally.
 - Deployed and verified end to end on **Base Sepolia (testnet)** — real
   chain creation, provisioning, deposit/mint, and burn/claim all confirmed
-  working against live Fly + Vercel + Neon infra, both on the original
-  anvil-based stack and again after the geth migration. Still no mainnet
+  working against live Fly + Vercel + Neon infra. Still no mainnet
   deployment and no external audit; see `docs/DEPLOYMENT.md`'s "Update: the
-  `fly` backend has since been run for real" note for what those real
-  deployments actually shook out (and fixed).
+  `fly` backend has since been run for real" note for what that real
+  deployment actually shook out (and fixed).

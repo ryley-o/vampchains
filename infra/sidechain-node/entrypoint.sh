@@ -3,8 +3,7 @@ set -eu
 
 # One vampchain = one persistent geth (Clique single-signer PoA) instance.
 # Config comes entirely from env vars so the same image is reused for every
-# chain. Replaces the earlier anvil-based image — see docs/ARCHITECTURE.md
-# "Why geth Clique PoA".
+# chain. See docs/ARCHITECTURE.md "Why geth Clique PoA".
 #
 # CHAIN_ID                  required, the vampchain's EVM chain id
 # CLIQUE_SIGNER_PRIVATE_KEY required — the block-signing key. Same key is

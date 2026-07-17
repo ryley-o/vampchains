@@ -5,9 +5,9 @@ chain — keeps cost down). Two polling loops per tick:
 
 1. **Deposits**: scans `VampBridge.Deposited` events on L1, mints the
    equivalent native balance on the target vampchain by sending a real,
-   signed transfer from the treasury account (`depositWatcher.ts` —
-   geth has no `anvil_setBalance`-style cheat code, this is a real chain).
-   Scaled to 18 decimals regardless of the base token's own decimals — see
+   signed transfer from the treasury account (`depositWatcher.ts`) — no
+   cheat code, this is a real signed transaction on a real chain. Scaled to
+   18 decimals regardless of the base token's own decimals — see
    `scaleToNativeUnits`, needed for correct display for anything that isn't
    18-decimal, e.g. USDC/USDT.
 2. **Withdrawals**: for every `ACTIVE` chain in Postgres, scans its blocks

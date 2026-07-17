@@ -1,10 +1,10 @@
 #!/bin/sh
-# Brings up the full local stack: Postgres + a local "home chain" anvil,
-# deploys fresh contracts to it, wires the resulting addresses into
-# docker-compose via a generated .env file, migrates the database, then
-# starts the gateway/relayer/provisioner containers. Prints instructions for
-# running the web app afterward (kept on the host for normal Next.js dev
-# ergonomics — hot reload, etc).
+# Brings up the full local stack: Postgres + a local geth-based "home chain"
+# standing in for Base, deploys fresh contracts to it, wires the resulting
+# addresses into docker-compose via a generated .env file, migrates the
+# database, then starts the gateway/relayer/provisioner containers. Prints
+# instructions for running the web app afterward (kept on the host for
+# normal Next.js dev ergonomics — hot reload, etc).
 set -eu
 cd "$(dirname "$0")/.."
 

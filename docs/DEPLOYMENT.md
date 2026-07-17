@@ -7,8 +7,8 @@ pnpm install
 ./scripts/dev-up.sh
 ```
 
-This brings up Postgres + a local anvil "home chain" (standing in for Base)
-via `docker compose`, deploys a fresh `MockUSDC` + `VampChainRegistry` +
+This brings up Postgres + a local geth-based "home chain" (standing in for
+Base) via `docker compose`, deploys a fresh `MockUSDC` + `VampChainRegistry` +
 `VampBridge` to it, migrates the database, and starts `rpc-gateway`,
 `relayer`, and `provisioner` as containers wired to each other. It prints
 the deployed addresses and a ready-to-use `web/.env.local` block — paste
@@ -24,8 +24,10 @@ was actually run against this stack — `createChain` on-chain, watched the
 provisioner discover the event and spin up a real Docker container for the
 new vampchain, deposited a token and watched the relayer mint the balance
 on it (checked through the public rpc-gateway, not by reaching into the
-container directly), then burned it back and watched the relayer release
-the original token back on L1. Balances matched exactly at every step.
+container directly), then burned it back, watched the relayer sign a claim,
+and submitted that claim to get the original token back on L1. Balances
+matched exactly at every step, including state persisting correctly across
+a container restart.
 
 ## Taking it to real infra
 
@@ -122,24 +124,24 @@ apps/machines/volumes — treat it like the relayer key, not a throwaway.
 
 **Update: the `fly` backend has since been run for real** — this whole stack
 was deployed to a live Fly org + Base Sepolia and the full create → deposit →
-mint → burn → release loop was verified end to end, including
+mint → burn → claim loop was verified end to end, including
 `infra/provisioner`'s `fly` backend actually creating a real per-chain Fly
-app/machine. A few real issues only showed up at that point, all now fixed
-in the code (not just worked around manually) — worth knowing about if you
-hit something similar:
+app/machine. A number of real issues only showed up at that point, all now
+fixed in the code (not just worked around manually) — worth knowing about if
+you hit something similar:
 
 - **`fly deploy` + Depot 401s**: this environment's `fly deploy` kept failing
   with `ensure depot builder failed (status 401)` on the remote/managed
   builder. Fix: pass `--depot=false` to force the legacy builder path. Every
   `fly deploy` command in this doc already includes it.
-- **Sidechain nodes were unreachable over `.internal`**: anvil was started
-  with `--host 0.0.0.0` (IPv4-only). Fly's private 6PN network is IPv6-only,
-  so a process bound only to the IPv4 wildcard is invisible to other apps
-  over `.internal` even though it works fine locally via a published port.
-  Fixed in `infra/sidechain-node/entrypoint.sh`: bind to `--host ::`
-  instead, which also still accepts IPv4 (needed for docker-compose's
-  published ports). If you fork this and see "upstream node unreachable"
-  from the gateway despite the machine showing `started`, check this first.
+- **Sidechain nodes must bind the IPv6 wildcard, not just IPv4.** Fly's
+  private 6PN network is IPv6-only, so a process bound only to
+  `0.0.0.0`/IPv4 is invisible to other apps over `.internal` even though it
+  works fine locally via a published port. `infra/sidechain-node/entrypoint.sh`
+  binds geth's HTTP server to `--http.addr ::` for exactly this reason,
+  which also still accepts IPv4 (needed for docker-compose's published
+  ports). If you fork this and see "upstream node unreachable" from the
+  gateway despite the machine showing `started`, check this first.
 - **Public RPC `eth_getLogs` limits**: a fresh indexer cursor started at
   block 1, and a single unbounded `fromBlock..toBlock` query against a live
   chain's full history gets rejected outright by rate-limited/capped public
@@ -159,9 +161,9 @@ hit something similar:
   on any free public endpoint's goodwill.
 - **Confirmations don't make sense for the sidechain side.** The withdrawal
   watcher originally reused the same `CONFIRMATIONS` value as the L1
-  watchers. A single-node anvil vampchain has no reorg risk at all, and it
-  only mines a block per transaction — so waiting N confirmations on a quiet
-  chain can stall forever (confirmations never accrue without new traffic).
+  watchers. A single-signer Clique vampchain has no reorg risk at all, so
+  waiting N confirmations serves no purpose and can add pointless latency on
+  a chain that's designed to mine on a fixed period regardless of traffic.
   Fixed: `pollWithdrawals` in `infra/relayer` no longer takes a
   confirmations parameter; it always scans up to the sidechain's current
   tip.

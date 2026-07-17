@@ -5,11 +5,10 @@ export interface RelayerConfig {
   l1ChainId: number;
   bridgeAddress: Address;
   relayerPrivateKey: Hex;
-  /// Signs real transfers on each vampchain to mint deposits (geth requires
-  /// an actual signed transaction — there's no anvil-style setBalance cheat
-  /// code on a real client). Never touches L1, never needs L1 gas; it only
-  /// ever spends the vampchain's own pre-funded native currency, on the
-  /// vampchain itself. See docs/ARCHITECTURE.md "Why geth Clique PoA".
+  /// Signs real transfers on each vampchain to mint deposits. Never touches
+  /// L1, never needs L1 gas; it only ever spends the vampchain's own
+  /// pre-funded native currency, on the vampchain itself. See
+  /// docs/ARCHITECTURE.md "Why geth Clique PoA".
   treasuryPrivateKey: Hex;
   pollIntervalMs: number;
   confirmations: number;

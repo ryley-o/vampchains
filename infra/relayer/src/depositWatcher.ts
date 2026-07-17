@@ -12,8 +12,8 @@ const CURSOR_ID = "bridge-deposits";
 
 /// Scans new VampBridge.Deposited events on L1 and, for each one, mints the
 /// equivalent native balance on the target vampchain by sending it a real,
-/// signed transaction from the treasury account (geth has no anvil-style
-/// setBalance cheat code — this is a real chain now). Idempotent: safe to
+/// signed transaction from the treasury account — no cheat code, this is a
+/// real chain. Idempotent: safe to
 /// call repeatedly / after a crash, since progress is tracked both by the
 /// IndexerCursor (which blocks have been scanned) and per-row `mintedAt`
 /// (which deposits have actually been minted, i.e. their mint tx confirmed).

@@ -19,9 +19,10 @@ services:
 
   # The "home chain" for local dev — stands in for Base. Reuses the same
   # geth-based image as every vampchain. Genesis funds TREASURY_ADDRESS here
-  # with DeployLocal.s.sol's deployer (anvil account #0) instead of the
-  # usual shared treasury address, since this chain just needs *a* funded
-  # account to broadcast the deploy script from, not real mint semantics.
+  # with DeployLocal.s.sol's deployer (the well-known Foundry/Hardhat test
+  # account #0) instead of the usual shared treasury address, since this
+  # chain just needs *a* funded account to broadcast the deploy script from,
+  # not real mint semantics.
   l1:
     build: ./infra/sidechain-node
     image: vampchains-sidechain-node:local
