@@ -30,6 +30,20 @@ export function CinematicIntro() {
   }
 
   useEffect(() => {
+    if (phase !== "intro" && phase !== "exiting") return;
+    const { style: htmlStyle } = document.documentElement;
+    const { style: bodyStyle } = document.body;
+    const prevHtmlOverflow = htmlStyle.overflow;
+    const prevBodyOverflow = bodyStyle.overflow;
+    htmlStyle.overflow = "hidden";
+    bodyStyle.overflow = "hidden";
+    return () => {
+      htmlStyle.overflow = prevHtmlOverflow;
+      bodyStyle.overflow = prevBodyOverflow;
+    };
+  }, [phase]);
+
+  useEffect(() => {
     if (phase !== "intro") return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Enter" || e.key === " " || e.key === "Escape") enter();

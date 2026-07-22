@@ -3,27 +3,33 @@
 import { useEffect, useMemo, useState } from "react";
 import { type Address, isAddress } from "viem";
 import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
-import { REGISTRY_ABI, REGISTRY_ADDRESS, USDC_ADDRESS, CONTRACTS_CONFIGURED } from "@/lib/contracts";
+import { REGISTRY_ABI, REGISTRY_ADDRESS, USDC_ADDRESS, CONTRACTS_CONFIGURED, L1_CHAIN_ID } from "@/lib/contracts";
 import { ERC20_ABI } from "@/lib/erc20Abi";
 import { formatUsdc } from "@/lib/format";
+import { TokenLogo } from "@/components/TokenLogo";
+
+// Mirrors VampChainRegistry's MIN_LABEL_LEN/MAX_NAME_LEN/MAX_SYMBOL_LEN — the
+// vampchain's name/symbol are derived straight from the token's own
+// name()/symbol(), clamped so a token with an unusually long name can't
+// make the on-chain call revert.
+const MAX_NAME_LEN = 64;
+const MAX_SYMBOL_LEN = 16;
 
 export function CreateChainForm() {
   const { address, isConnected } = useAccount();
 
   const [tokenAddress, setTokenAddress] = useState("");
-  const [name, setName] = useState("");
-  const [symbol, setSymbol] = useState("");
   const [agreed, setAgreed] = useState(false);
 
   const validToken = isAddress(tokenAddress) ? (tokenAddress as Address) : undefined;
 
-  const { data: tokenName } = useReadContract({
+  const { data: tokenName, isError: tokenNameError } = useReadContract({
     address: validToken,
     abi: ERC20_ABI,
     functionName: "name",
     query: { enabled: !!validToken },
   });
-  const { data: tokenSymbol } = useReadContract({
+  const { data: tokenSymbol, isError: tokenSymbolError } = useReadContract({
     address: validToken,
     abi: ERC20_ABI,
     functionName: "symbol",
@@ -35,6 +41,11 @@ export function CreateChainForm() {
     functionName: "decimals",
     query: { enabled: !!validToken },
   });
+
+  const derivedName = typeof tokenName === "string" && tokenName.length > 0 ? tokenName.slice(0, MAX_NAME_LEN) : undefined;
+  const derivedSymbol =
+    typeof tokenSymbol === "string" && tokenSymbol.length > 0 ? tokenSymbol.slice(0, MAX_SYMBOL_LEN) : undefined;
+  const metadataUnreadable = !!validToken && (tokenNameError || tokenSymbolError);
 
   const { data: annualFee } = useReadContract({
     address: REGISTRY_ADDRESS,
@@ -83,13 +94,12 @@ export function CreateChainForm() {
       isConnected &&
       !!validToken &&
       !tokenDecimalsError &&
+      !metadataUnreadable &&
+      !!derivedName &&
+      !!derivedSymbol &&
       !tokenAlreadyUsed &&
-      name.trim().length > 0 &&
-      name.length <= 64 &&
-      symbol.trim().length > 0 &&
-      symbol.length <= 16 &&
       agreed,
-    [isConnected, validToken, tokenDecimalsError, tokenAlreadyUsed, name, symbol, agreed]
+    [isConnected, validToken, tokenDecimalsError, metadataUnreadable, derivedName, derivedSymbol, tokenAlreadyUsed, agreed]
   );
 
   if (!CONTRACTS_CONFIGURED) {
@@ -118,37 +128,29 @@ export function CreateChainForm() {
             Couldn&apos;t read decimals() from this address — is it really an ERC20?
           </p>
         )}
+        {validToken && !tokenDecimalsError && metadataUnreadable && (
+          <p className="mt-1.5 text-xs text-blood-bright">
+            Couldn&apos;t read name()/symbol() from this token — some non-standard ERC20s return
+            bytes32 instead of string here and aren&apos;t supported yet.
+          </p>
+        )}
         {tokenAlreadyUsed && (
           <p className="mt-1.5 text-xs text-blood-bright">This token already has an active vampchain.</p>
         )}
-        {validToken && tokenDecimals !== undefined && !tokenDecimalsError && (
-          <p className="mt-1.5 text-xs text-emerald-300/80">
-            Detected: {String(tokenName ?? "?")} (${String(tokenSymbol ?? "?")}), {String(tokenDecimals)} decimals
-          </p>
+        {validToken && derivedName && derivedSymbol && tokenDecimals !== undefined && !tokenDecimalsError && (
+          <div className="mt-3 flex items-center gap-3 rounded-xl border border-hairline bg-charcoal-soft/50 p-3">
+            <TokenLogo address={validToken} chainId={L1_CHAIN_ID} size={36} />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-bone">
+                {derivedName} <span className="text-bone-dim/60">(${derivedSymbol})</span>
+              </p>
+              <p className="text-xs text-bone-dim/50">
+                {String(tokenDecimals)} decimals · your vampchain will be named &amp; ticker&apos;d to
+                match
+              </p>
+            </div>
+          </div>
         )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-bone-dim/60">
-            Chain name
-          </label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={64}
-            className="mt-2 w-full rounded-xl border border-hairline bg-ink-raised px-4 py-3 text-sm text-bone focus:border-blood/60"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-bone-dim/60">Symbol</label>
-          <input
-            value={symbol}
-            onChange={(e) => setSymbol(e.target.value)}
-            maxLength={16}
-            className="mt-2 w-full rounded-xl border border-hairline bg-ink-raised px-4 py-3 text-sm text-bone focus:border-blood/60"
-          />
-        </div>
       </div>
 
       <div className="rounded-xl border border-hairline bg-charcoal-soft/50 p-4 text-sm text-bone-dim/80">
@@ -175,8 +177,10 @@ export function CreateChainForm() {
           <a href="/terms" className="text-bone-dim underline underline-offset-2">
             terms
           </a>
-          : this is unaudited, experimental software, the bridge is a single trusted relayer, and
-          I won&apos;t use it for anything illegal.
+          : this is unaudited, experimental software, the bridge is a single trusted relayer, the
+          business could shut down or freeze this chain at any time (best-effort withdrawal
+          window only), bridged funds could be lost forever with no legal recourse, and I
+          won&apos;t use it for anything illegal.
         </span>
       </label>
 
@@ -202,11 +206,13 @@ export function CreateChainForm() {
           disabled={!canSubmit || creating || createConfirming}
           onClick={() =>
             validToken &&
+            derivedName &&
+            derivedSymbol &&
             createChain({
               address: REGISTRY_ADDRESS,
               abi: REGISTRY_ABI,
               functionName: "createChain",
-              args: [validToken, name, symbol],
+              args: [validToken, derivedName, derivedSymbol],
             })
           }
           className="w-full rounded-full bg-blood px-6 py-3.5 text-sm font-semibold uppercase tracking-wider text-bone shadow-[0_0_40px_rgba(226,45,58,0.3)] transition-transform hover:scale-[1.02] hover:bg-blood-bright disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100 sm:w-auto"

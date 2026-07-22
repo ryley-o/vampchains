@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { prisma } from "@vampchains/db";
 import { getOnchainChain, getRemainingRuntime } from "@/lib/registryReads";
 import { formatUsdc, shortAddress } from "@/lib/format";
-import { GATEWAY_URL, CONTRACTS_CONFIGURED } from "@/lib/contracts";
+import { GATEWAY_URL, CONTRACTS_CONFIGURED, L1_CHAIN_ID } from "@/lib/contracts";
 import { StatusPill } from "@/components/StatusPill";
+import { TokenLogo } from "@/components/TokenLogo";
 import { BridgeForm } from "@/components/BridgeForm";
 import { GeneralBridgeForm } from "@/components/GeneralBridgeForm";
 import { TopUpForm } from "@/components/TopUpForm";
@@ -55,15 +57,18 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-5 py-14 sm:py-16">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="font-mono text-xs uppercase tracking-[0.2em] text-blood">
-            Vampchain #{dbChain.evmChainId.toString()}
-          </p>
-          <h1 className="text-display mt-1.5 text-4xl text-bone sm:text-5xl">{dbChain.name}</h1>
-          <p className="mt-3 text-sm text-bone-dim/60">
-            <span className="font-mono text-bone-dim">${dbChain.symbol}</span> · base token{" "}
-            <span className="font-mono">{shortAddress(dbChain.baseToken)}</span>
-          </p>
+        <div className="flex items-start gap-4">
+          <TokenLogo address={dbChain.baseToken} chainId={L1_CHAIN_ID} size={48} className="mt-1" />
+          <div>
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-blood">
+              Vampchain #{dbChain.evmChainId.toString()}
+            </p>
+            <h1 className="text-display mt-1.5 text-4xl text-bone sm:text-5xl">{dbChain.name}</h1>
+            <p className="mt-3 text-sm text-bone-dim/60">
+              <span className="font-mono text-bone-dim">${dbChain.symbol}</span> · base token{" "}
+              <span className="font-mono">{shortAddress(dbChain.baseToken)}</span>
+            </p>
+          </div>
         </div>
         <StatusPill status={dbChain.status} />
       </div>
@@ -95,6 +100,19 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
           </>
         )}
       </Panel>
+
+      {isActive && (
+        <p className="rounded-xl border border-amber-800/60 bg-amber-950/30 px-4 py-3 text-xs leading-relaxed text-amber-300">
+          Bridging is experimental. This chain, the bridge, or the business itself could be frozen
+          or shut down at any time — we&apos;ll make a best effort to publish a withdrawal window
+          first, but it isn&apos;t guaranteed, and funds sitting in protocols on this sidechain are
+          at extra risk. Read the{" "}
+          <Link href="/terms" className="underline underline-offset-2 hover:text-amber-200">
+            terms
+          </Link>{" "}
+          before bridging anything you can&apos;t afford to lose forever.
+        </p>
+      )}
 
       {isActive && (
         <Panel title="Bridge" eyebrow="In / out">

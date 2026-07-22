@@ -2,8 +2,9 @@ import Link from "next/link";
 import { prisma } from "@vampchains/db";
 import { getRemainingRuntime } from "@/lib/registryReads";
 import { shortAddress } from "@/lib/format";
-import { CONTRACTS_CONFIGURED } from "@/lib/contracts";
+import { CONTRACTS_CONFIGURED, L1_CHAIN_ID } from "@/lib/contracts";
 import { StatusPill } from "@/components/StatusPill";
+import { TokenLogo } from "@/components/TokenLogo";
 import { CinematicIntro } from "@/components/brand/CinematicIntro";
 import { FangDivider } from "@/components/brand/FangDivider";
 import { RunwayMeter } from "@/components/brand/RunwayMeter";
@@ -139,11 +140,14 @@ export default async function HomePage() {
                   className="group relative overflow-hidden rounded-2xl border border-hairline bg-ink-raised p-5 transition-all hover:-translate-y-1 hover:border-blood/50 hover:shadow-[0_8px_40px_rgba(226,45,58,0.15)]"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-display text-lg text-bone">{chain.name}</p>
-                      <p className="mt-0.5 font-mono text-xs uppercase tracking-wider text-blood">
-                        ${chain.symbol}
-                      </p>
+                    <div className="flex min-w-0 items-center gap-3">
+                      <TokenLogo address={chain.baseToken} chainId={L1_CHAIN_ID} size={36} />
+                      <div className="min-w-0">
+                        <p className="truncate text-display text-lg text-bone">{chain.name}</p>
+                        <p className="mt-0.5 font-mono text-xs uppercase tracking-wider text-blood">
+                          ${chain.symbol}
+                        </p>
+                      </div>
                     </div>
                     <StatusPill status={chain.status} />
                   </div>

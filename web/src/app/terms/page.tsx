@@ -30,6 +30,44 @@ export default function TermsPage() {
         close to running out of funding — top it up or bridge out.
       </p>
 
+      <h2 className="text-display pt-3 text-lg text-bone">
+        Vampchain (the business) can shut down, and your chain can be frozen
+      </h2>
+      <p>
+        Vampchain is a memechain protocol run by a small team, not a foundation, not a DAO, and
+        not a regulated custodian. At any point, and for any reason — running out of money,
+        regulatory pressure, deciding to stop operating, or anything else — we may wind the
+        business down entirely. If that happens:
+      </p>
+      <ul className="list-disc space-y-1.5 pl-5">
+        <li>Any or all vampchains may have their state frozen, including chains that still have
+          funding remaining.</li>
+        <li>We will make a best effort to publish a window during which base-chain (L1) tokens
+          locked in the bridge can be withdrawn, and to give advance notice before that window
+          closes. This is a best effort, not a guarantee — it may be shorter than you&apos;d like,
+          or in an extreme case (compromised relayer key, critical bug, legal order) it may not be
+          possible to offer a withdrawal window at all.
+        </li>
+        <li>Funds that are sitting inside other protocols, contracts, or dApps deployed on a
+          vampchain&apos;s sidechain — not simply held as a balance — are at additional risk on
+          top of the above. If the sidechain is frozen or torn down, funds committed to a
+          third-party contract on that chain may be lost even if the bridge itself offers a
+          withdrawal window, because there&apos;s no guarantee that contract can still be exited
+          in time or at all.
+        </li>
+      </ul>
+
+      <h2 className="text-display pt-3 text-lg text-bone">This is experimental — funds can be lost forever</h2>
+      <p>
+        Beyond the business-continuity risk above, every vampchain is unaudited software running
+        on a trust model with a single relayer key and a single-node sidechain — see
+        &quot;What this actually is&quot; above. Smart contract bugs, relayer key compromise, node
+        failure, or any other technical fault could result in permanent, total loss of funds
+        bridged into a vampchain, independent of anything the business chooses to do. Treat every
+        token you bridge into a vampchain — and every dollar of value you put at risk by doing so
+        — as money you are fully prepared to lose forever, with no recovery path.
+      </p>
+
       <h2 className="text-display pt-3 text-lg text-bone">Acceptable use</h2>
       <p>
         Don&apos;t use vampchains for anything illegal: money laundering, sanctions evasion, fraud,
@@ -40,10 +78,16 @@ export default function TermsPage() {
         here is investment advice.
       </p>
 
-      <h2 className="text-display pt-3 text-lg text-bone">No warranty</h2>
+      <h2 className="text-display pt-3 text-lg text-bone">No warranty, no legal recourse</h2>
       <p>
-        Provided as-is, with no warranty of any kind, express or implied. We are not liable for
-        any loss of funds, data, or uptime arising from using vampchains.
+        Provided as-is, with no warranty of any kind, express or implied. To the fullest extent
+        the law allows, we are not liable for any loss of funds, data, or uptime arising from
+        using vampchains — including loss caused by a chain freeze, a shutdown of the business, a
+        bridge or relayer failure, a smart contract bug, or funds lost inside a third-party
+        protocol deployed on a vampchain. By using vampchain you accept that bridged funds are
+        experimental, that you may have no practical legal recourse to recover them if something
+        goes wrong, and that this is a real, not theoretical, risk. This applies for as long as
+        vampchain remains an early-stage, unaudited protocol — at least for now.
       </p>
     </div>
   );
