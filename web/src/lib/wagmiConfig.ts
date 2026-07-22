@@ -20,8 +20,11 @@ if (typeof window !== "undefined" && WALLETCONNECT_PROJECT_ID) {
       metadata: {
         name: "Vampchain",
         description: "Pick any ERC20. We turn it into the native gas of its very own blockchain.",
-        url: "https://vampchain.com",
-        icons: ["https://vampchain.com/brand/social-avatar.svg"],
+        // Must match the origin the page actually serves from — vampchain.com
+        // 308-redirects to www, and WalletConnect checks this against
+        // window.location for its wallet-side domain verification.
+        url: "https://www.vampchain.com",
+        icons: ["https://www.vampchain.com/brand/social-avatar.svg"],
       },
     })
   );
