@@ -100,6 +100,57 @@ export default async function HomePage() {
             </div>
           ))}
         </div>
+        <p className="mt-10 text-sm text-bone-dim/50">
+          You also earn from it, forever — and there&apos;s a real, honest answer for what
+          happens if funding ever runs out.{" "}
+          <Link href="/how-it-works" className="text-blood underline underline-offset-2 hover:text-blood-bright">
+            See how it all works →
+          </Link>
+        </p>
+      </section>
+
+      {/* Creator incentives teaser */}
+      <section className="border-t border-hairline bg-ink-raised/40">
+        <div className="mx-auto max-w-6xl px-5 py-20">
+          <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 sm:items-center">
+            <div>
+              <p className="font-mono text-xs uppercase tracking-[0.2em] text-blood">
+                Creator incentives
+              </p>
+              <h2 className="text-display mt-2 text-3xl text-bone">
+                You don&apos;t just pay for a chain. You earn from it.
+              </h2>
+              <p className="mt-4 text-sm leading-relaxed text-bone-dim/70">
+                Every transaction on your vampchain generates gas fees. We split that revenue
+                50/50 with you, automatically, for as long as the chain runs — on top of whatever
+                the token itself is worth.
+              </p>
+              <Link
+                href="/how-it-works"
+                className="mt-5 inline-block text-sm font-semibold text-blood transition-colors hover:text-blood-bright"
+              >
+                See the worked example →
+              </Link>
+            </div>
+            <div className="rounded-2xl border border-hairline bg-ink p-6">
+              <p className="font-mono text-xs uppercase tracking-[0.2em] text-bone-dim/40">
+                Example month
+              </p>
+              <div className="mt-4 flex items-center justify-between">
+                <span className="text-sm text-bone-dim/60">Chain generates</span>
+                <span className="font-mono text-lg text-bone">$40</span>
+              </div>
+              <div className="mt-3 flex items-center justify-between border-t border-hairline pt-3">
+                <span className="text-sm text-bone-dim/60">You (creator)</span>
+                <span className="font-mono text-lg text-emerald-300">$20</span>
+              </div>
+              <div className="mt-3 flex items-center justify-between">
+                <span className="text-sm text-bone-dim/60">Protocol</span>
+                <span className="font-mono text-lg text-bone-dim">$20</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       {/* Live chains */}

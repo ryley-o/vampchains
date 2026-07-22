@@ -2,7 +2,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@vampchains/db";
 import { getOnchainChain, getRemainingRuntime } from "@/lib/registryReads";
-import { formatUsdc, shortAddress } from "@/lib/format";
+import { getBurnedFeesClaimed } from "@/lib/bridgeReads";
+import { formatTokenAmount, formatUsdc, shortAddress } from "@/lib/format";
 import { GATEWAY_URL, CONTRACTS_CONFIGURED, L1_CHAIN_ID } from "@/lib/contracts";
 import { StatusPill } from "@/components/StatusPill";
 import { TokenLogo } from "@/components/TokenLogo";
@@ -10,9 +11,51 @@ import { BridgeForm } from "@/components/BridgeForm";
 import { GeneralBridgeForm } from "@/components/GeneralBridgeForm";
 import { TopUpForm } from "@/components/TopUpForm";
 import { ExplorerPanel } from "@/components/ExplorerPanel";
+import { AutoRefresh } from "@/components/AutoRefresh";
 import { RunwayMeter } from "@/components/brand/RunwayMeter";
 
 export const dynamic = "force-dynamic";
+
+/// Copy for every non-active status a chain can be in — deliberately
+/// distinct per status rather than one generic "not active" bucket, since
+/// each one means something different to someone looking at this page.
+const STATUS_COPY: Record<string, { tone: string; title: string; body: React.ReactNode }> = {
+  PENDING_PROVISION: {
+    tone: "border-amber-800/60 bg-amber-950/20 text-amber-300",
+    title: "Spinning up",
+    body: "Seen on-chain, infrastructure hasn't started yet — this usually takes a few seconds.",
+  },
+  PROVISIONING: {
+    tone: "border-amber-800/60 bg-amber-950/20 text-amber-300",
+    title: "Almost there",
+    body: "Your sidechain is being provisioned right now. This page will update automatically once it's live.",
+  },
+  PROVISION_FAILED: {
+    tone: "border-blood/60 bg-blood/10 text-blood-bright",
+    title: "Provisioning failed",
+    body: "Something went wrong standing up this chain's infrastructure. This needs a human to look at it — reach out if this is your chain.",
+  },
+  AWAITING_SNAPSHOT: {
+    tone: "border-blood/60 bg-blood/10 text-blood-bright",
+    title: "Finalizing final snapshot",
+    body: "This chain's grace period just expired. We're reading its last real balances and publishing a snapshot right now — check back shortly, then look up your wallet on the claim page.",
+  },
+  DEACTIVATING: {
+    tone: "border-hairline-strong bg-charcoal-soft/40 text-bone-dim",
+    title: "Snapshot published, infra winding down",
+    body: (
+      <>
+        The final snapshot is already published — you can claim now if you had funds here.
+        Infrastructure teardown is still finishing up in the background.
+      </>
+    ),
+  },
+  DEACTIVATED: {
+    tone: "border-hairline-strong bg-charcoal-soft/40 text-bone-dim",
+    title: "Torn down",
+    body: "This chain's grace period expired and a final snapshot of every balance it had was taken. Its infrastructure is gone for good.",
+  },
+};
 
 function Panel({ title, eyebrow, children }: { title: string; eyebrow: string; children: React.ReactNode }) {
   return (
@@ -37,10 +80,11 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
   const dbChain = await prisma.chain.findUnique({ where: { chainId } });
   if (!dbChain) notFound();
 
-  const [onchain, remainingRuntime, wrappedTokenRows] = await Promise.all([
+  const [onchain, remainingRuntime, wrappedTokenRows, burnedFeesClaimed] = await Promise.all([
     getOnchainChain(chainId),
     getRemainingRuntime(chainId),
     prisma.wrappedToken.findMany({ where: { chainDbId: dbChain.id }, orderBy: { createdAt: "asc" } }),
+    getBurnedFeesClaimed(chainId),
   ]);
 
   const wrappedTokens = wrappedTokenRows.map((w) => ({
@@ -58,7 +102,6 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
   // follows (see VampChainRegistry.sol) — this chain is still fully
   // usable, just running on borrowed time until someone tops it up.
   const inGracePeriod = isActive && onchain !== null && remainingRuntime === 0n;
-  const isTornDown = ["AWAITING_SNAPSHOT", "DEACTIVATING", "DEACTIVATED"].includes(dbChain.status);
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-5 py-14 sm:py-16">
@@ -106,6 +149,27 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
           </>
         )}
       </Panel>
+
+      {CONTRACTS_CONFIGURED && onchain && (
+        <Panel title="Creator earnings" eyebrow="50/50 split">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-sm text-bone-dim/60">
+                Gas fees this chain generates split 50/50 between its creator{" "}
+                <span className="font-mono text-bone-dim">{shortAddress(onchain.creator)}</span>{" "}
+                and the protocol — automatically, for as long as it&apos;s running.
+              </p>
+              <p className="mt-1 text-xs text-bone-dim/40">
+                Base-fee revenue recaptured so far (floor — swept tip revenue adds to this too).
+              </p>
+            </div>
+            <p className="font-mono text-2xl text-emerald-300">
+              {formatTokenAmount(burnedFeesClaimed, dbChain.baseTokenDecimals)}{" "}
+              <span className="text-sm text-bone-dim/50">${dbChain.symbol}</span>
+            </p>
+          </div>
+        </Panel>
+      )}
 
       {inGracePeriod && (
         <p className="rounded-xl border border-blood/60 bg-blood/10 px-4 py-3 text-xs font-semibold leading-relaxed text-blood-bright">
@@ -160,28 +224,30 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
         </Panel>
       )}
 
-      {!isActive && isTornDown && (
-        <div className="rounded-2xl border border-dashed border-hairline-strong px-6 py-10 text-center text-sm text-bone-dim/50">
-          <p>
-            This chain has been torn down — its grace period expired and a final snapshot of
-            every balance it had was taken.
-          </p>
-          <p className="mt-2">
-            If you had funds on it,{" "}
-            <Link href="/claim" className="text-bone underline underline-offset-2 hover:text-blood-bright">
-              look up your wallet
-            </Link>{" "}
-            to claim them.
-          </p>
-        </div>
-      )}
-
-      {!isActive && !isTornDown && (
-        <p className="rounded-2xl border border-dashed border-hairline-strong px-6 py-10 text-center text-sm text-bone-dim/50">
-          This chain is {dbChain.status.replace(/_/g, " ").toLowerCase()} — the bridge and explorer
-          become available once it&apos;s active.
-        </p>
-      )}
+      {!isActive &&
+        (() => {
+          const copy = STATUS_COPY[dbChain.status];
+          if (!copy) return null;
+          // Not AWAITING_SNAPSHOT — the snapshot hasn't actually been
+          // published yet at that point, so there'd be nothing to find.
+          const showClaimLink = ["DEACTIVATING", "DEACTIVATED"].includes(dbChain.status);
+          const isTransient = ["PENDING_PROVISION", "PROVISIONING"].includes(dbChain.status);
+          return (
+            <div className={`rounded-2xl border px-6 py-10 text-center text-sm ${copy.tone}`}>
+              {isTransient && <AutoRefresh />}
+              <p className="text-display text-lg">{copy.title}</p>
+              <p className="mx-auto mt-2 max-w-md leading-relaxed opacity-90">{copy.body}</p>
+              {showClaimLink && (
+                <Link
+                  href="/claim"
+                  className="mt-4 inline-block underline underline-offset-2 hover:opacity-80"
+                >
+                  Look up your wallet →
+                </Link>
+              )}
+            </div>
+          );
+        })()}
     </div>
   );
 }

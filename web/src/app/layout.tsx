@@ -44,6 +44,12 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               </Link>
               <nav className="flex items-center gap-6 text-sm">
                 <Link
+                  href="/how-it-works"
+                  className="hidden font-medium text-bone-dim transition-colors hover:text-bone sm:inline"
+                >
+                  How it works
+                </Link>
+                <Link
                   href="/create"
                   className="hidden font-medium text-bone-dim transition-colors hover:text-bone sm:inline"
                 >

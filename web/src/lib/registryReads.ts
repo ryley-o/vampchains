@@ -47,6 +47,24 @@ export async function getRemainingRuntime(chainId: bigint): Promise<bigint> {
   }
 }
 
+/// Read live rather than hardcoded in copy: the owner can adjust
+/// `defaultAnnualFeeUSDC` at any time (never retroactively, per-chain rates
+/// stay locked in at creation — see VampChainRegistry.sol), so anywhere the
+/// site quotes "the current fee" should reflect what a new chain would
+/// actually pay right now.
+export async function getDefaultAnnualFee(): Promise<bigint> {
+  if (!CONTRACTS_CONFIGURED) return 0n;
+  try {
+    return (await l1PublicClient.readContract({
+      address: REGISTRY_ADDRESS,
+      abi: REGISTRY_ABI,
+      functionName: "defaultAnnualFeeUSDC",
+    })) as bigint;
+  } catch {
+    return 0n;
+  }
+}
+
 export async function getIsActive(chainId: bigint): Promise<boolean> {
   if (!CONTRACTS_CONFIGURED) return false;
   try {
