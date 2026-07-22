@@ -1,4 +1,6 @@
 import { execFile as execFileCb } from "node:child_process";
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 import type { Chain as ChainRow } from "@vampchains/db";
 import type { Provisioner, ProvisionResult } from "./types.js";
@@ -58,13 +60,43 @@ export class LocalDockerProvisioner implements Provisioner {
     return { rpcUrl };
   }
 
+  /// Local-dev equivalent of FlyProvisioner.backup: tars the container's
+  /// data volume out to a local `backups/` directory via a throwaway
+  /// alpine container (read-only mount, so this can never corrupt the live
+  /// volume it's copying from). Best-effort, same reasoning as the Fly
+  /// backend — logs and continues rather than blocking teardown.
+  async backup(chain: ChainRow): Promise<void> {
+    const name = containerName(chain);
+    const volumeName = `${name}-data`;
+    try {
+      const backupsDir = path.resolve(process.cwd(), "backups");
+      await mkdir(backupsDir, { recursive: true });
+      const fileName = `${volumeName}-${Date.now()}.tar.gz`;
+      await execFile("docker", [
+        "run",
+        "--rm",
+        "-v",
+        `${volumeName}:/data:ro`,
+        "-v",
+        `${backupsDir}:/backup`,
+        "alpine",
+        "sh",
+        "-c",
+        `tar czf /backup/${fileName} -C /data .`,
+      ]);
+      console.log(`[local-docker] backed up ${volumeName} to backups/${fileName}`);
+    } catch (err) {
+      console.warn(`[local-docker] failed to back up volume ${volumeName}, proceeding with teardown anyway:`, err);
+    }
+  }
+
   async deprovision(chain: ChainRow): Promise<void> {
     const name = containerName(chain);
     await execFile("docker", ["rm", "-f", name]).catch(() => {});
-    // Volume deliberately left in place — cheap, and preserves a forensic
-    // snapshot of final balances in case a "claim after teardown" mechanism
-    // ever gets built (see docs/ARCHITECTURE.md known limitations). Prune
-    // manually if disk space matters.
+    // Volume deliberately left in place too, on top of the explicit backup
+    // above — cheap, extra insurance, preserves the live volume itself in
+    // case the tarball backup somehow also has a gap. Prune manually if
+    // disk space matters.
   }
 
   private async waitForHealthy(name: string, timeoutMs = 30_000): Promise<void> {

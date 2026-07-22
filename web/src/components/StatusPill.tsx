@@ -1,6 +1,7 @@
 const STYLES: Record<string, { dot: string; text: string; pulse?: boolean }> = {
   ACTIVE: { dot: "bg-emerald-400", text: "text-emerald-300", pulse: true },
   DEACTIVATED: { dot: "bg-bone-dim/40", text: "text-bone-dim/50" },
+  AWAITING_SNAPSHOT: { dot: "bg-blood-bright", text: "text-blood-bright", pulse: true },
   DEACTIVATING: { dot: "bg-amber-400", text: "text-amber-300" },
   PROVISION_FAILED: { dot: "bg-blood-bright", text: "text-blood-bright" },
   PENDING_PROVISION: { dot: "bg-amber-400", text: "text-amber-300", pulse: true },

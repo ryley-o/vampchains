@@ -6,6 +6,7 @@ import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 import {ECDSA} from "solady/utils/ECDSA.sol";
+import {MerkleProofLib} from "solady/utils/MerkleProofLib.sol";
 import {VampChainRegistry} from "./VampChainRegistry.sol";
 
 /// @notice Minimal ERC20 balance probe — `balanceOf` is universally
@@ -421,5 +422,143 @@ contract VampBridge is Ownable, ReentrancyGuard, EIP712 {
 
         baseToken.safeTransfer(protocolTreasury, toProtocol);
         baseToken.safeTransfer(creator, toCreator);
+    }
+
+    // ---------------------------------------------------------------------
+    // Snapshot claims: what happens to bridged funds once a chain is
+    // actually torn down
+    //
+    // The live burn-and-claim flow (`claim`/`claimToken`) requires the user
+    // to submit a real transaction *on the vampchain itself* to signal a
+    // withdrawal. That's fine right up until the chain is actually torn
+    // down (see docs/ARCHITECTURE.md "Protocol fee revenue" and
+    // VampChainRegistry's grace period) — at that point there's no live
+    // node left to burn against, ever again, for anyone who didn't already
+    // withdraw in time. This is the mechanism that replaces it: once a
+    // chain's grace period has genuinely expired, the relayer reads every
+    // real balance the chain had at that final moment (native currency +
+    // every general-bridged wrapped token), builds a Merkle tree of
+    // (chainId, token, holder, amount) leaves, and publishes just the root.
+    // Anyone can then claim their own leaf by submitting its Merkle proof —
+    // permissionless, same as every other claim path here — capped by the
+    // exact same `lockedBalance`/`lockedBalanceGeneral` ceiling as
+    // claim()/claimToken(), so even a bad-faith root can never release more
+    // than this chain actually has locked, regardless of what it claims.
+    // ---------------------------------------------------------------------
+
+    /// @notice Merkle root of every (chainId, token, holder, amount) leaf at
+    /// the moment a chain's snapshot was taken. `bytes32(0)` means no
+    /// snapshot has been published yet.
+    mapping(uint256 => bytes32) public snapshotRoot;
+
+    /// @notice When `snapshotRoot[chainId]` was published — starts the
+    /// `SNAPSHOT_CLAIM_WINDOW` clock `sweepUnclaimed` checks against.
+    mapping(uint256 => uint256) public snapshotPublishedAt;
+
+    /// @notice Whether a given (chainId, token, holder) leaf has already
+    /// been claimed. Distinct from `claimed` (keyed by sidechainTxHash) —
+    /// a snapshot leaf has no underlying sidechain transaction at all.
+    mapping(uint256 => mapping(address => mapping(address => bool))) public snapshotClaimed;
+
+    /// @notice How long a published snapshot's leaves stay claimable
+    /// before the protocol may sweep whatever's left unclaimed (see
+    /// `sweepUnclaimed`) — deliberately generous, this is the last chance
+    /// for anyone who had real funds on a now-dead chain to get them back.
+    uint256 public constant SNAPSHOT_CLAIM_WINDOW = 30 days;
+
+    bytes32 public constant SNAPSHOT_TYPEHASH = keccak256("Snapshot(uint256 vampChainId,bytes32 root)");
+
+    event SnapshotPublished(uint256 indexed chainId, bytes32 root, uint256 publishedAt);
+    event SnapshotClaimed(uint256 indexed chainId, address indexed token, address indexed to, uint256 amount);
+    event UnclaimedSwept(uint256 indexed chainId, address indexed token, uint256 amount);
+
+    error SnapshotAlreadyPublished();
+    error NoSnapshot();
+    error InvalidProof();
+    error ClaimWindowNotElapsed();
+
+    /// @notice Publishes the final-balances Merkle root for a chain,
+    /// authorized by an EIP-712 signature from `signer` (the same trusted
+    /// attester every other claim path here relies on). Permissionless to
+    /// submit, like every other claim function — most naturally the
+    /// relayer itself, or the provisioner once it's finished tearing the
+    /// chain's infra down. Can only ever be published once per chain: there
+    /// is deliberately no update path, so a claim already verified against
+    /// a root can never be invalidated out from under someone by a later
+    /// "correction."
+    function publishSnapshot(uint256 chainId, bytes32 root, bytes calldata signature) external {
+        if (snapshotRoot[chainId] != bytes32(0)) revert SnapshotAlreadyPublished();
+        if (root == bytes32(0)) revert NoSnapshot();
+
+        bytes32 structHash = keccak256(abi.encode(SNAPSHOT_TYPEHASH, chainId, root));
+        address recovered = ECDSA.recoverCalldata(_hashTypedData(structHash), signature);
+        if (recovered != signer) revert InvalidSignature();
+
+        snapshotRoot[chainId] = root;
+        snapshotPublishedAt[chainId] = block.timestamp;
+        emit SnapshotPublished(chainId, root, block.timestamp);
+    }
+
+    /// @notice Claim `amount` of `token` (`address(0)` = the chain's own
+    /// base token, native-currency path; anything else = a general-bridged
+    /// wrapped token, same as `depositToken`/`claimToken`) owed to `to` per
+    /// the published snapshot. Permissionless — funds always land on the
+    /// `to` address baked into the leaf, regardless of who submits this.
+    /// Still capped by the same locked-balance ceiling as the live claim
+    /// paths, so a compromised or mistaken root can never over-release.
+    function claimSnapshot(uint256 chainId, address token, address to, uint256 amount, bytes32[] calldata proof)
+        external
+        nonReentrant
+        whenNotPaused
+    {
+        bytes32 root = snapshotRoot[chainId];
+        if (root == bytes32(0)) revert NoSnapshot();
+        if (amount == 0) revert ZeroAmount();
+        if (to == address(0)) revert ZeroAddress();
+        if (snapshotClaimed[chainId][token][to]) revert AlreadyClaimed();
+
+        bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(chainId, token, to, amount))));
+        if (!MerkleProofLib.verifyCalldata(proof, root, leaf)) revert InvalidProof();
+
+        snapshotClaimed[chainId][token][to] = true;
+
+        if (token == address(0)) {
+            if (lockedBalance[chainId] < amount) revert InsufficientLocked();
+            lockedBalance[chainId] -= amount;
+            registry.baseTokenOf(chainId).safeTransfer(to, amount);
+        } else {
+            if (lockedBalanceGeneral[chainId][token] < amount) revert InsufficientLocked();
+            lockedBalanceGeneral[chainId][token] -= amount;
+            token.safeTransfer(to, amount);
+        }
+
+        emit SnapshotClaimed(chainId, token, to, amount);
+    }
+
+    /// @notice Once `SNAPSHOT_CLAIM_WINDOW` has elapsed since a chain's
+    /// snapshot was published, permissionlessly sweep whatever's left
+    /// unclaimed for a given `token` to the protocol treasury. Recipient is
+    /// always `registry.protocolTreasury()`, never caller-supplied, so
+    /// there's no reason to gate who can trigger this — it's just a fixed,
+    /// long-delayed cleanup of genuinely abandoned funds, not a live risk.
+    function sweepUnclaimed(uint256 chainId, address token) external nonReentrant returns (uint256 amount) {
+        uint256 publishedAt = snapshotPublishedAt[chainId];
+        if (publishedAt == 0) revert NoSnapshot();
+        if (block.timestamp < publishedAt + SNAPSHOT_CLAIM_WINDOW) revert ClaimWindowNotElapsed();
+
+        address transferToken;
+        if (token == address(0)) {
+            amount = lockedBalance[chainId];
+            lockedBalance[chainId] = 0;
+            transferToken = registry.baseTokenOf(chainId);
+        } else {
+            amount = lockedBalanceGeneral[chainId][token];
+            lockedBalanceGeneral[chainId][token] = 0;
+            transferToken = token;
+        }
+        if (amount == 0) revert ZeroAmount();
+
+        transferToken.safeTransfer(registry.protocolTreasury(), amount);
+        emit UnclaimedSwept(chainId, token, amount);
     }
 }

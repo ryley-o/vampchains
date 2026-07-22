@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function TermsPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-5 px-5 py-16 text-sm leading-6 text-bone-dim/80 sm:py-20">
@@ -22,12 +24,26 @@ export default function TermsPage() {
       <h2 className="text-display pt-3 text-lg text-bone">Funding &amp; chain lifecycle</h2>
       <p>
         A chain&apos;s funding balance is public and drawn down linearly over time to cover our
-        real infrastructure cost. Anyone can top it up. If a chain&apos;s funding runs out
-        completely, its infrastructure is torn down and it does not come back — a new chain (new
-        token, new address, new history) would have to be created from scratch. Tokens you&apos;ve
-        bridged in but never bridged back out before a teardown may become unrecoverable through
-        the normal withdrawal flow. Don&apos;t leave meaningful value sitting on a chain that&apos;s
-        close to running out of funding — top it up or bridge out.
+        real infrastructure cost. Anyone can top it up. If a chain&apos;s funding runs out, it
+        doesn&apos;t shut down immediately — it stays fully open (deposits, minting, top-ups, all
+        of it) for a one-week grace period, giving anyone a real window to fund it back up before
+        anything actually comes down. If nobody does, we take a final snapshot of every real
+        balance the chain had, publish it, and infrastructure is torn down for good — that
+        specific chain does not come back, though a new chain for the same token (new address, new
+        history) can always be created from scratch afterward.
+      </p>
+      <p>
+        Once a chain is torn down, funds that were bridged in but never bridged back out don&apos;t
+        just disappear: for 30 days after the snapshot, you can look up your wallet on the{" "}
+        <Link href="/claim" className="underline underline-offset-2 hover:text-bone">
+          claim page
+        </Link>{" "}
+        and withdraw whatever it shows, based on that final snapshot. After 30 days, whatever
+        hasn&apos;t been claimed is swept to the protocol. This is best-effort infrastructure we
+        run ourselves, not a guarantee — a bug in the snapshot process, a compromised relayer key,
+        or us simply failing to run this correctly could still mean funds are lost. Don&apos;t
+        leave meaningful value sitting on a chain that&apos;s close to running out of funding —
+        top it up or bridge out while you still easily can.
       </p>
 
       <h2 className="text-display pt-3 text-lg text-bone">

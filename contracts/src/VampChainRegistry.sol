@@ -25,9 +25,15 @@ interface IERC20Decimals {
 /// is a single pool that represents everything not yet paid out (both
 /// already-earned-but-unwithdrawn and not-yet-earned funds); `topUp` is
 /// fully permissionless so anyone can extend a chain's runway and prevent it
-/// being torn down. Once a chain's funding fully depletes it is deactivated
-/// forever — a brand new `createChain` call (new chainId) is required to
-/// bring the same base token back.
+/// being torn down. Once a chain's paid-up funding depletes it stays fully
+/// open for `GRACE_PERIOD` (a rescue window — deposits/minting/top-ups all
+/// keep working, see `isActive`) before `deactivateIfGraceExpired` can
+/// actually flip it off; from there it's deactivated forever — a brand new
+/// `createChain` call (new chainId) is required to bring the same base
+/// token back. See VampBridge.sol for what happens to funds already
+/// bridged onto a chain once it's actually torn down (a Merkle snapshot
+/// claim process, not the live burn-and-claim flow, since there's no live
+/// node left to burn against).
 contract VampChainRegistry is Ownable, ReentrancyGuard {
     using SafeTransferLib for address;
     using SafeCastLib for uint256;
@@ -48,6 +54,16 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
     uint256 public constant MIN_LABEL_LEN = 1;
     uint256 public constant MAX_NAME_LEN = 64;
     uint256 public constant MAX_SYMBOL_LEN = 16;
+
+    /// @notice How long a chain stays fully open (deposits, minting,
+    /// top-ups — everything) after its paid-up funding runs out, before it
+    /// actually gets torn down. A deliberate "shut-off grace window," not
+    /// the protocol extending credit: nothing is ever owed beyond what was
+    /// really funded (see `_earned`'s cap), this just delays the hard
+    /// cutover to give a permissionless top-up (or the chain's own
+    /// creator) a real chance to rescue it before infra actually comes down
+    /// and the snapshot/claim process (see VampBridge.sol) kicks in.
+    uint256 public constant GRACE_PERIOD = 7 days;
 
     /// @notice The USDC token used for fee payments.
     address public immutable usdc;
@@ -157,7 +173,16 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
 
     /// @notice Protocol withdraws whatever has been "earned" so far (linear
     /// accrual since the last accrual checkpoint, capped at the remaining
-    /// balance). Fully draining a chain's balance deactivates it.
+    /// balance). Deliberately does NOT deactivate the chain even if this
+    /// fully drains `fundingBalance` to zero — that used to happen here,
+    /// but it let a routine protocol fee withdrawal instantly kill a chain
+    /// mid-grace-period (fundingBalance reaching zero is just what
+    /// "already depleted" looks like once nominal depletion has passed,
+    /// which is true for the entire grace window, not just after it
+    /// expires). `deactivateIfGraceExpired` is now the only path that ever
+    /// flips `active`/`activeChainByToken` — `isActive` stays accurate
+    /// regardless, since it already recomputes `isPastGrace` fresh on
+    /// every call rather than trusting a stored flag.
     function withdrawEarned(uint256 chainId) external onlyOwner nonReentrant returns (uint256 amount) {
         VampChain storage c = _chainOrRevert(chainId);
         amount = _earned(c);
@@ -166,24 +191,23 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
         c.fundingBalance -= amount.toUint128();
         c.lastAccrualAt = uint64(block.timestamp);
 
-        if (c.fundingBalance == 0) {
-            c.active = false;
-            delete activeChainByToken[c.baseToken];
-            emit ChainDeactivated(chainId, block.timestamp);
-        }
-
         usdc.safeTransfer(protocolTreasury, amount);
         emit FeeWithdrawn(chainId, amount, c.fundingBalance);
     }
 
     /// @notice Permissionless: flips a chain's `active` flag off once its
-    /// funding has genuinely run out (by elapsed time), regardless of
-    /// whether the protocol has gotten around to withdrawing yet. The
+    /// grace period has genuinely expired (`GRACE_PERIOD` after paid-up
+    /// funding ran out), regardless of whether the protocol has gotten
+    /// around to withdrawing yet. Merely running out of paid runtime is
+    /// NOT enough on its own — `isActive` already stays true throughout
+    /// the grace window (see below), so this only ever returns true once
+    /// the chain has truly run out its rescue window with no top-up. The
     /// provisioner calls this (or reacts to the resulting event) to know
-    /// when to tear down the underlying infra.
-    function deactivateIfDepleted(uint256 chainId) external returns (bool deactivated) {
+    /// when to start the snapshot process and tear down the underlying
+    /// infra — see VampBridge.sol's snapshot-claim mechanism.
+    function deactivateIfGraceExpired(uint256 chainId) external returns (bool deactivated) {
         VampChain storage c = _chainOrRevert(chainId);
-        if (c.active && remainingRuntime(chainId) == 0) {
+        if (c.active && isPastGrace(chainId)) {
             c.active = false;
             delete activeChainByToken[c.baseToken];
             emit ChainDeactivated(chainId, block.timestamp);
@@ -211,24 +235,56 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
         return _earned(_chainOrRevert(chainId));
     }
 
-    /// @notice Seconds of runway left before this chain's funding fully
-    /// depletes at its locked-in annual rate. 0 if already depleted or
-    /// inactive. `type(uint256).max` for the (edge-case) free-tier chain
-    /// created with a 0 annual fee.
-    function remainingRuntime(uint256 chainId) public view returns (uint256) {
+    /// @notice The instant this chain's paid-up funding will (or did) run
+    /// out, per the locked-in linear accrual rate — `lastAccrualAt +
+    /// fundingBalance * YEAR / annualFeeUSDC`. Can be in the past; that's
+    /// not an error, it's just what "already depleted" looks like as a
+    /// timestamp rather than a stored flag. `type(uint256).max` for the
+    /// (edge-case) free-tier chain created with a 0 annual fee, which never
+    /// depletes.
+    function depletionInstant(uint256 chainId) public view returns (uint256) {
         VampChain storage c = _chainOrRevert(chainId);
-        if (!c.active) return 0;
         if (c.annualFeeUSDC == 0) return type(uint256).max;
+        return uint256(c.lastAccrualAt) + (uint256(c.fundingBalance) * YEAR) / c.annualFeeUSDC;
+    }
 
-        uint256 depletion = uint256(c.lastAccrualAt) + (uint256(c.fundingBalance) * YEAR) / c.annualFeeUSDC;
+    /// @notice Seconds of *paid* runway left before this chain's funding
+    /// fully depletes. Floors at 0 once depleted — including throughout any
+    /// grace period afterward, this never goes negative. `type(uint256).max`
+    /// for the free-tier (0-fee) edge case.
+    function remainingRuntime(uint256 chainId) public view returns (uint256) {
+        uint256 depletion = depletionInstant(chainId);
+        if (depletion == type(uint256).max) return type(uint256).max;
         if (block.timestamp >= depletion) return 0;
         return depletion - block.timestamp;
     }
 
-    /// @notice True iff the chain is flagged active AND still has runway.
-    /// Pure view, needs no keeper transaction to be accurate.
+    /// @notice The instant a chain's grace period actually expires —
+    /// `GRACE_PERIOD` after its paid-up funding ran out. `type(uint256).max`
+    /// for the free-tier (0-fee) edge case, which never depletes and so
+    /// never grace-expires either.
+    function graceDeadline(uint256 chainId) public view returns (uint256) {
+        uint256 depletion = depletionInstant(chainId);
+        if (depletion == type(uint256).max) return type(uint256).max;
+        return depletion + GRACE_PERIOD;
+    }
+
+    /// @notice True once a chain's grace period has genuinely expired —
+    /// the real "time to shut this down" signal, as opposed to merely
+    /// having run out of paid runtime (which alone keeps the chain fully
+    /// open, see `isActive`).
+    function isPastGrace(uint256 chainId) public view returns (bool) {
+        return block.timestamp > graceDeadline(chainId);
+    }
+
+    /// @notice True iff the chain is flagged active AND hasn't exceeded its
+    /// grace window. Running out of *paid* runtime alone no longer stops
+    /// this — deposits, minting, and top-ups all keep working throughout
+    /// the grace period, so a permissionless top-up (or the chain's own
+    /// creator) has a real window to rescue it before anything actually
+    /// shuts down. Pure view, needs no keeper transaction to be accurate.
     function isActive(uint256 chainId) external view returns (bool) {
-        return _chains[chainId].active && remainingRuntime(chainId) > 0;
+        return _chains[chainId].active && !isPastGrace(chainId);
     }
 
     function chainCount() external view returns (uint256) {

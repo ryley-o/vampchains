@@ -73,7 +73,11 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
                 <Link href="/terms" className="text-bone-dim/70 underline underline-offset-2 hover:text-bone">
                   terms
                 </Link>{" "}
-                before you send anything real value.
+                before you send anything real value. Chain torn down?{" "}
+                <Link href="/claim" className="text-bone-dim/70 underline underline-offset-2 hover:text-bone">
+                  Claim your funds
+                </Link>
+                .
               </p>
             </div>
           </footer>

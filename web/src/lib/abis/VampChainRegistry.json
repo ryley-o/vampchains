@@ -27,6 +27,19 @@
   },
   {
     "type": "function",
+    "name": "GRACE_PERIOD",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_NAME_LEN",
     "inputs": [],
     "outputs": [
@@ -179,7 +192,7 @@
   },
   {
     "type": "function",
-    "name": "deactivateIfDepleted",
+    "name": "deactivateIfGraceExpired",
     "inputs": [
       {
         "name": "chainId",
@@ -200,6 +213,25 @@
     "type": "function",
     "name": "defaultAnnualFeeUSDC",
     "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "depletionInstant",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "outputs": [
       {
         "name": "",
@@ -296,7 +328,45 @@
   },
   {
     "type": "function",
+    "name": "graceDeadline",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "isActive",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isPastGrace",
     "inputs": [
       {
         "name": "chainId",

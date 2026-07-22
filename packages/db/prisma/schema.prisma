@@ -15,8 +15,15 @@ enum ChainStatus {
   PENDING_PROVISION // ChainCreated seen on-chain, infra not up yet
   PROVISIONING // Fly machine being created
   ACTIVE // node up and serving RPC
-  DEACTIVATING // registry says depleted, teardown in progress
-  DEACTIVATED // torn down, terminal state
+  AWAITING_SNAPSHOT // registry's grace period expired; node stays up just
+  // long enough to read final balances and publish a snapshot Merkle root
+  // on VampBridge — see docs/ARCHITECTURE.md "Protocol fee revenue" /
+  // snapshot claims. The public rpc-gateway already stops serving this
+  // chain once status leaves ACTIVE, even though the Fly machine is still
+  // briefly alive for this internal read.
+  DEACTIVATING // snapshot published, infra backup + teardown in progress
+  DEACTIVATED // torn down, terminal state — funds remain claimable via the
+  // snapshot for SNAPSHOT_CLAIM_WINDOW, then sweepable by the protocol
   PROVISION_FAILED // needs human attention
 }
 
@@ -73,10 +80,11 @@ model Chain {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  deposits      DepositEvent[]
-  withdrawals   WithdrawalEvent[]
-  fundingEvents FundingEvent[]
-  wrappedTokens WrappedToken[]
+  deposits             DepositEvent[]
+  withdrawals          WithdrawalEvent[]
+  fundingEvents        FundingEvent[]
+  wrappedTokens        WrappedToken[]
+  snapshotEntitlements SnapshotEntitlement[]
 
   @@index([status])
   @@index([baseToken])
@@ -185,6 +193,44 @@ model WrappedToken {
 
   @@unique([chainDbId, l1Token])
   @@index([chainId])
+}
+
+/// One row per (chain, token, holder) leaf in a published snapshot Merkle
+/// tree (see VampBridge.publishSnapshot/claimSnapshot) — built once by the
+/// provisioner from a chain's final on-chain balances right as its grace
+/// period expires. The chain contract only ever stores the root; this
+/// table is what lets the frontend look up "does this address have
+/// anything to claim" and fetch the actual Merkle proof to submit, since
+/// proofs aren't derivable from a root alone. `claimed`/`claimedAt` are a
+/// best-effort cache for UI purposes only — `VampBridge.snapshotClaimed`
+/// on chain is the real source of truth for whether a claim has happened.
+model SnapshotEntitlement {
+  id        Int   @id @default(autoincrement())
+  chain     Chain @relation(fields: [chainDbId], references: [id])
+  chainDbId Int
+  chainId   BigInt
+
+  /// The zero address for the chain's own base token (native-currency
+  /// path), or the L1 token address for a general-bridged wrapped token —
+  /// matches claimSnapshot's `token` parameter exactly (including how it
+  /// represents "native"). Deliberately NOT nullable, unlike `token` on
+  /// DepositEvent/WithdrawalEvent: this column is part of the compound
+  /// unique index below, and Postgres never treats two NULLs as equal in a
+  /// unique constraint — a nullable column here would silently let
+  /// duplicate native-path rows through for the same holder.
+  token   String
+  address String
+  amount  String // uint256 as decimal string
+  proof   String // JSON-encoded bytes32[] array, in the exact order claimSnapshot expects
+
+  claimed   Boolean   @default(false)
+  claimedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([chainDbId, token, address])
+  @@index([chainId])
+  @@index([address])
 }
 
 /// Registry-level funding history (chain creation, top-ups, protocol

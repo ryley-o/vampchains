@@ -90,6 +90,31 @@ export class FlyProvisioner implements Provisioner {
     };
   }
 
+  /// Creates a real, versioned Fly volume snapshot before teardown — see
+  /// docs/ARCHITECTURE.md and `Provisioner.backup`'s docstring for why:
+  /// insurance against the snapshot-claim Merkle tree ever missing
+  /// something, distinct from (and stronger than) just leaving the raw
+  /// volume around after the app's deleted, since an operator could still
+  /// delete an unattached volume later without realizing it's the only
+  /// copy. Best-effort: logs and continues rather than blocking teardown
+  /// if the snapshot call itself fails, since the volume is left in place
+  /// either way (see `deprovision`).
+  async backup(chain: ChainRow): Promise<void> {
+    const name = appName(chain);
+    try {
+      const volumes = await this.fly<{ id: string; name: string }[]>(`/apps/${name}/volumes`);
+      const volume = volumes.find((v) => v.name === "data");
+      if (!volume) {
+        console.warn(`[fly] no "data" volume found for ${name}, skipping backup`);
+        return;
+      }
+      await this.fly(`/apps/${name}/volumes/${volume.id}/snapshots`, { method: "POST" });
+      console.log(`[fly] created volume snapshot for ${name} (volume ${volume.id})`);
+    } catch (err) {
+      console.warn(`[fly] failed to snapshot volume for ${name}, proceeding with teardown anyway:`, err);
+    }
+  }
+
   async deprovision(chain: ChainRow): Promise<void> {
     const name = appName(chain);
     // Deleting the app tears down its machine(s) too. Volumes are NOT

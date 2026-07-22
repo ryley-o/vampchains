@@ -53,6 +53,12 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
 
   const gatewayRpcUrl = `${GATEWAY_URL}/rpc/${chainId}`;
   const isActive = dbChain.status === "ACTIVE" && !!dbChain.rpcUrl;
+  // remainingRuntime hits 0 the instant paid-up funding depletes, but
+  // isActive() stays true throughout the week-long grace period that
+  // follows (see VampChainRegistry.sol) — this chain is still fully
+  // usable, just running on borrowed time until someone tops it up.
+  const inGracePeriod = isActive && onchain !== null && remainingRuntime === 0n;
+  const isTornDown = ["AWAITING_SNAPSHOT", "DEACTIVATING", "DEACTIVATED"].includes(dbChain.status);
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-5 py-14 sm:py-16">
@@ -101,6 +107,14 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
         )}
       </Panel>
 
+      {inGracePeriod && (
+        <p className="rounded-xl border border-blood/60 bg-blood/10 px-4 py-3 text-xs font-semibold leading-relaxed text-blood-bright">
+          This chain has run out of paid funding and is in its one-week grace period — it&apos;s
+          still fully open, but will be torn down for good if nobody tops it up in time.{" "}
+          <span className="font-normal">Top up above to keep it alive.</span>
+        </p>
+      )}
+
       {isActive && (
         <p className="rounded-xl border border-amber-800/60 bg-amber-950/30 px-4 py-3 text-xs leading-relaxed text-amber-300">
           Bridging is experimental. This chain, the bridge, or the business itself could be frozen
@@ -146,7 +160,23 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
         </Panel>
       )}
 
-      {!isActive && (
+      {!isActive && isTornDown && (
+        <div className="rounded-2xl border border-dashed border-hairline-strong px-6 py-10 text-center text-sm text-bone-dim/50">
+          <p>
+            This chain has been torn down — its grace period expired and a final snapshot of
+            every balance it had was taken.
+          </p>
+          <p className="mt-2">
+            If you had funds on it,{" "}
+            <Link href="/claim" className="text-bone underline underline-offset-2 hover:text-blood-bright">
+              look up your wallet
+            </Link>{" "}
+            to claim them.
+          </p>
+        </div>
+      )}
+
+      {!isActive && !isTornDown && (
         <p className="rounded-2xl border border-dashed border-hairline-strong px-6 py-10 text-center text-sm text-bone-dim/50">
           This chain is {dbChain.status.replace(/_/g, " ").toLowerCase()} — the bridge and explorer
           become available once it&apos;s active.

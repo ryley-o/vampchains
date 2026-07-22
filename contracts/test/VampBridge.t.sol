@@ -152,6 +152,32 @@ contract VampBridgeTest is Test {
         return _signBurnedFees(signerKey, address(bridge), vampChainId, cumulativeBurned, asOfBlock);
     }
 
+    function _signSnapshot(uint256 pk, address verifyingContract, uint256 vampChainId, bytes32 root)
+        internal
+        view
+        returns (bytes memory signature)
+    {
+        bytes32 structHash = keccak256(abi.encode(bridge.SNAPSHOT_TYPEHASH(), vampChainId, root));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(verifyingContract), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        signature = abi.encodePacked(r, s, v);
+    }
+
+    function _validSnapshotSignature(uint256 vampChainId, bytes32 root) internal view returns (bytes memory) {
+        return _signSnapshot(signerKey, address(bridge), vampChainId, root);
+    }
+
+    /// @notice Must match VampBridge.sol's leaf/pair-hashing exactly:
+    /// double-hashed leaves (OZ-style second-preimage mitigation) and
+    /// sorted-pair internal nodes (solady's MerkleProofLib convention).
+    function _leaf(uint256 vampChainId, address token, address to, uint256 amount) internal pure returns (bytes32) {
+        return keccak256(bytes.concat(keccak256(abi.encode(vampChainId, token, to, amount))));
+    }
+
+    function _hashPair(bytes32 a, bytes32 b) internal pure returns (bytes32) {
+        return a < b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a));
+    }
+
     // ---------------------------------------------------------------------
     // constructor
     // ---------------------------------------------------------------------
@@ -209,7 +235,7 @@ contract VampBridgeTest is Test {
     }
 
     function test_deposit_revertsOnInactiveChain() public {
-        vm.warp(block.timestamp + YEAR + 1);
+        vm.warp(block.timestamp + YEAR + registry.GRACE_PERIOD() + 1);
         vm.expectRevert(VampBridge.ChainNotActive.selector);
         vm.prank(alice);
         bridge.deposit(chainId, 1e18, bob);
@@ -486,8 +512,8 @@ contract VampBridgeTest is Test {
         vm.prank(alice);
         bridge.deposit(chainId, 100e18, alice);
 
-        vm.warp(block.timestamp + YEAR + 1);
-        registry.deactivateIfDepleted(chainId);
+        vm.warp(block.timestamp + YEAR + registry.GRACE_PERIOD() + 1);
+        registry.deactivateIfGraceExpired(chainId);
         assertFalse(registry.isActive(chainId));
 
         bytes32 txHash = keccak256("tx1");
@@ -617,7 +643,7 @@ contract VampBridgeTest is Test {
     }
 
     function test_depositToken_revertsOnInactiveChain() public {
-        vm.warp(block.timestamp + YEAR + 1);
+        vm.warp(block.timestamp + YEAR + registry.GRACE_PERIOD() + 1);
         vm.expectRevert(VampBridge.ChainNotActive.selector);
         vm.prank(alice);
         bridge.depositToken(chainId, address(randomToken), 1e8, bob);
@@ -882,8 +908,8 @@ contract VampBridgeTest is Test {
         vm.prank(alice);
         bridge.depositToken(chainId, address(randomToken), 100e8, alice);
 
-        vm.warp(block.timestamp + YEAR + 1);
-        registry.deactivateIfDepleted(chainId);
+        vm.warp(block.timestamp + YEAR + registry.GRACE_PERIOD() + 1);
+        registry.deactivateIfGraceExpired(chainId);
         assertFalse(registry.isActive(chainId));
 
         bytes32 txHash = keccak256("wtok1");
@@ -1091,8 +1117,8 @@ contract VampBridgeTest is Test {
         vm.prank(alice);
         bridge.deposit(chainId, 100e18, alice);
 
-        vm.warp(block.timestamp + YEAR + 1);
-        registry.deactivateIfDepleted(chainId);
+        vm.warp(block.timestamp + YEAR + registry.GRACE_PERIOD() + 1);
+        registry.deactivateIfGraceExpired(chainId);
         assertFalse(registry.isActive(chainId));
 
         bytes32 txHash = keccak256("sweep1");
@@ -1283,8 +1309,8 @@ contract VampBridgeTest is Test {
         vm.prank(alice);
         bridge.deposit(chainId, 100e18, alice);
 
-        vm.warp(block.timestamp + YEAR + 1);
-        registry.deactivateIfDepleted(chainId);
+        vm.warp(block.timestamp + YEAR + registry.GRACE_PERIOD() + 1);
+        registry.deactivateIfGraceExpired(chainId);
         assertFalse(registry.isActive(chainId));
 
         bytes memory sig = _validBurnedFeesSignature(chainId, 40e18, 100);
@@ -1312,5 +1338,434 @@ contract VampBridgeTest is Test {
         (uint256 toProtocol, uint256 toCreator) = bridge.claimBurnedFees(chainId, cumulativeBurned, 1, sig);
         assertLe(toProtocol + toCreator, depositAmount);
         assertGe(bridge.lockedBalance(chainId), 0);
+    }
+
+    // ---------------------------------------------------------------------
+    // snapshot claims: publishSnapshot / claimSnapshot / sweepUnclaimed
+    // ---------------------------------------------------------------------
+
+    function test_publishSnapshot_happyPath() public {
+        bytes32 leaf = _leaf(chainId, address(0), bob, 40e18);
+        bytes memory sig = _validSnapshotSignature(chainId, leaf);
+
+        bridge.publishSnapshot(chainId, leaf, sig);
+
+        assertEq(bridge.snapshotRoot(chainId), leaf);
+        assertEq(bridge.snapshotPublishedAt(chainId), block.timestamp);
+    }
+
+    function test_publishSnapshot_emitsEvent() public {
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bytes memory sig = _validSnapshotSignature(chainId, root);
+
+        vm.expectEmit(true, true, true, true);
+        emit VampBridge.SnapshotPublished(chainId, root, block.timestamp);
+        bridge.publishSnapshot(chainId, root, sig);
+    }
+
+    function test_publishSnapshot_callableByAnyone() public {
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bytes memory sig = _validSnapshotSignature(chainId, root);
+
+        vm.prank(makeAddr("randomSubmitter"));
+        bridge.publishSnapshot(chainId, root, sig);
+        assertEq(bridge.snapshotRoot(chainId), root);
+    }
+
+    function test_publishSnapshot_revertsOnWrongSigner() public {
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        uint256 attackerKey = 0xBADBAD;
+        bytes memory sig = _signSnapshot(attackerKey, address(bridge), chainId, root);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.publishSnapshot(chainId, root, sig);
+    }
+
+    function test_publishSnapshot_revertsOnZeroRoot() public {
+        bytes memory sig = _validSnapshotSignature(chainId, bytes32(0));
+        vm.expectRevert(VampBridge.NoSnapshot.selector);
+        bridge.publishSnapshot(chainId, bytes32(0), sig);
+    }
+
+    function test_publishSnapshot_revertsIfAlreadyPublished() public {
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bytes memory sig = _validSnapshotSignature(chainId, root);
+        bridge.publishSnapshot(chainId, root, sig);
+
+        bytes32 otherRoot = _leaf(chainId, address(0), bob, 41e18);
+        bytes memory otherSig = _validSnapshotSignature(chainId, otherRoot);
+        vm.expectRevert(VampBridge.SnapshotAlreadyPublished.selector);
+        bridge.publishSnapshot(chainId, otherRoot, otherSig);
+    }
+
+    function test_publishSnapshot_revertsIfChainIdTampered() public {
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bytes memory sig = _validSnapshotSignature(chainId, root);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.publishSnapshot(chainId + 1, root, sig);
+    }
+
+    function test_publishSnapshot_revertsOnCrossContractReplay() public {
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        address otherBridgeAddress = makeAddr("otherBridge");
+        bytes memory sig = _signSnapshot(signerKey, otherBridgeAddress, chainId, root);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.publishSnapshot(chainId, root, sig);
+    }
+
+    function test_claimSnapshot_happyPath_nativeToken_singleLeafTree() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        // Single-leaf tree: root == leaf, empty proof.
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        bridge.claimSnapshot(chainId, address(0), bob, 40e18, new bytes32[](0));
+
+        assertEq(meme.balanceOf(bob), 40e18);
+        assertEq(bridge.lockedBalance(chainId), 60e18);
+        assertTrue(bridge.snapshotClaimed(chainId, address(0), bob));
+    }
+
+    function test_claimSnapshot_happyPath_wrappedToken() public {
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 100e8, alice);
+
+        bytes32 root = _leaf(chainId, address(randomToken), bob, 40e8);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        bridge.claimSnapshot(chainId, address(randomToken), bob, 40e8, new bytes32[](0));
+
+        assertEq(randomToken.balanceOf(bob), 40e8);
+        assertEq(bridge.lockedBalanceGeneral(chainId, address(randomToken)), 60e8);
+    }
+
+    /// @notice Two-leaf tree — proves a real (non-empty, non-degenerate)
+    /// Merkle proof actually verifies both ways.
+    function test_claimSnapshot_twoLeafTree_bothLeavesClaimable() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes32 leafBob = _leaf(chainId, address(0), bob, 30e18);
+        bytes32 leafAlice = _leaf(chainId, address(0), alice, 20e18);
+        bytes32 root = _hashPair(leafBob, leafAlice);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        bytes32[] memory proofForBob = new bytes32[](1);
+        proofForBob[0] = leafAlice;
+        bridge.claimSnapshot(chainId, address(0), bob, 30e18, proofForBob);
+        assertEq(meme.balanceOf(bob), 30e18);
+
+        bytes32[] memory proofForAlice = new bytes32[](1);
+        proofForAlice[0] = leafBob;
+        uint256 aliceBalBefore = meme.balanceOf(alice);
+        bridge.claimSnapshot(chainId, address(0), alice, 20e18, proofForAlice);
+        assertEq(meme.balanceOf(alice), aliceBalBefore + 20e18);
+
+        assertEq(bridge.lockedBalance(chainId), 50e18);
+    }
+
+    /// @notice Four-leaf tree — proves a multi-step proof (more than one
+    /// sibling to consume) verifies correctly, not just the degenerate
+    /// single-pair case.
+    function test_claimSnapshot_fourLeafTree_multiStepProof() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 400e18, alice);
+
+        address carol = makeAddr("carol");
+        address dave = makeAddr("dave");
+
+        bytes32 l0 = _leaf(chainId, address(0), alice, 10e18);
+        bytes32 l1 = _leaf(chainId, address(0), bob, 20e18);
+        bytes32 l2 = _leaf(chainId, address(0), carol, 30e18);
+        bytes32 l3 = _leaf(chainId, address(0), dave, 40e18);
+        bytes32 n0 = _hashPair(l0, l1);
+        bytes32 n1 = _hashPair(l2, l3);
+        bytes32 root = _hashPair(n0, n1);
+
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        bytes32[] memory proofForCarol = new bytes32[](2);
+        proofForCarol[0] = l3;
+        proofForCarol[1] = n0;
+        bridge.claimSnapshot(chainId, address(0), carol, 30e18, proofForCarol);
+        assertEq(meme.balanceOf(carol), 30e18);
+
+        bytes32[] memory proofForDave = new bytes32[](2);
+        proofForDave[0] = l2;
+        proofForDave[1] = n0;
+        bridge.claimSnapshot(chainId, address(0), dave, 40e18, proofForDave);
+        assertEq(meme.balanceOf(dave), 40e18);
+    }
+
+    function test_claimSnapshot_emitsEvent() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        vm.expectEmit(true, true, true, true);
+        emit VampBridge.SnapshotClaimed(chainId, address(0), bob, 40e18);
+        bridge.claimSnapshot(chainId, address(0), bob, 40e18, new bytes32[](0));
+    }
+
+    function test_claimSnapshot_callableByAnyone_fundsAlwaysGoToBoundToAddress() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        vm.prank(makeAddr("randomSubmitter"));
+        bridge.claimSnapshot(chainId, address(0), bob, 40e18, new bytes32[](0));
+        assertEq(meme.balanceOf(bob), 40e18);
+    }
+
+    function test_claimSnapshot_revertsOnReplay() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        bridge.claimSnapshot(chainId, address(0), bob, 40e18, new bytes32[](0));
+
+        vm.expectRevert(VampBridge.AlreadyClaimed.selector);
+        bridge.claimSnapshot(chainId, address(0), bob, 40e18, new bytes32[](0));
+    }
+
+    function test_claimSnapshot_revertsOnWrongAmount() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        vm.expectRevert(VampBridge.InvalidProof.selector);
+        bridge.claimSnapshot(chainId, address(0), bob, 41e18, new bytes32[](0));
+    }
+
+    function test_claimSnapshot_revertsOnWrongRecipient() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        vm.expectRevert(VampBridge.InvalidProof.selector);
+        bridge.claimSnapshot(chainId, address(0), alice, 40e18, new bytes32[](0));
+    }
+
+    function test_claimSnapshot_revertsOnWrongToken() public {
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 100e8, alice);
+        bytes32 root = _leaf(chainId, address(randomToken), bob, 40e8);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        // Same chainId/to/amount, but claiming against the native path
+        // instead of the wrapped token the leaf was actually built for.
+        vm.expectRevert(VampBridge.InvalidProof.selector);
+        bridge.claimSnapshot(chainId, address(0), bob, 40e8, new bytes32[](0));
+    }
+
+    function test_claimSnapshot_revertsWithWrongProof() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+        bytes32 leafBob = _leaf(chainId, address(0), bob, 30e18);
+        bytes32 leafAlice = _leaf(chainId, address(0), alice, 20e18);
+        bytes32 root = _hashPair(leafBob, leafAlice);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        // Correct leaf, but a proof element that doesn't actually pair up to the root.
+        bytes32[] memory wrongProof = new bytes32[](1);
+        wrongProof[0] = keccak256("not a real sibling");
+        vm.expectRevert(VampBridge.InvalidProof.selector);
+        bridge.claimSnapshot(chainId, address(0), bob, 30e18, wrongProof);
+    }
+
+    function test_claimSnapshot_revertsWhenNoSnapshotPublished() public {
+        vm.expectRevert(VampBridge.NoSnapshot.selector);
+        bridge.claimSnapshot(chainId, address(0), bob, 40e18, new bytes32[](0));
+    }
+
+    function test_claimSnapshot_revertsOnZeroAmountOrRecipient() public {
+        bytes32 root = _leaf(chainId, address(0), bob, 0);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+        vm.expectRevert(VampBridge.ZeroAmount.selector);
+        bridge.claimSnapshot(chainId, address(0), bob, 0, new bytes32[](0));
+
+        bytes32 root2 = _leaf(chainId + 1, address(0), address(0), 1e18);
+        bridge.publishSnapshot(chainId + 1, root2, _validSnapshotSignature(chainId + 1, root2));
+        vm.expectRevert(VampBridge.ZeroAddress.selector);
+        bridge.claimSnapshot(chainId + 1, address(0), address(0), 1e18, new bytes32[](0));
+    }
+
+    function test_claimSnapshot_revertsWhenExceedsLocked() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 10e18, alice);
+        bytes32 root = _leaf(chainId, address(0), bob, 20e18);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        vm.expectRevert(VampBridge.InsufficientLocked.selector);
+        bridge.claimSnapshot(chainId, address(0), bob, 20e18, new bytes32[](0));
+    }
+
+    function test_claimSnapshot_revertsWhenPaused() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        vm.prank(owner);
+        bridge.setPaused(true);
+        vm.expectRevert(VampBridge.BridgePaused.selector);
+        bridge.claimSnapshot(chainId, address(0), bob, 40e18, new bytes32[](0));
+    }
+
+    function test_claimSnapshot_worksAfterChainDeactivated() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+        vm.warp(block.timestamp + YEAR + registry.GRACE_PERIOD() + 1);
+        registry.deactivateIfGraceExpired(chainId);
+        assertFalse(registry.isActive(chainId));
+
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+        bridge.claimSnapshot(chainId, address(0), bob, 40e18, new bytes32[](0));
+        assertEq(meme.balanceOf(bob), 40e18);
+    }
+
+    function testFuzz_claimSnapshot_roundTrip(uint96 depositAmount, uint96 claimAmount) public {
+        vm.assume(depositAmount > 0 && depositAmount < 1_000_000_000e18);
+        vm.assume(claimAmount > 0 && claimAmount <= depositAmount);
+
+        meme.mint(alice, depositAmount);
+        vm.prank(alice);
+        bridge.deposit(chainId, depositAmount, alice);
+
+        bytes32 root = _leaf(chainId, address(0), bob, claimAmount);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+        bridge.claimSnapshot(chainId, address(0), bob, claimAmount, new bytes32[](0));
+
+        assertEq(meme.balanceOf(bob), claimAmount);
+        assertEq(bridge.lockedBalance(chainId), depositAmount - claimAmount);
+    }
+
+    // ---------------------------------------------------------------------
+    // sweepUnclaimed
+    // ---------------------------------------------------------------------
+
+    function test_sweepUnclaimed_revertsBeforeWindowElapsed() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        vm.expectRevert(VampBridge.ClaimWindowNotElapsed.selector);
+        bridge.sweepUnclaimed(chainId, address(0));
+    }
+
+    function test_sweepUnclaimed_happyPath_afterWindowSweepsAllRemaining() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        // Bob claims his share before the window closes.
+        bridge.claimSnapshot(chainId, address(0), bob, 40e18, new bytes32[](0));
+
+        vm.warp(block.timestamp + bridge.SNAPSHOT_CLAIM_WINDOW() + 1);
+        uint256 swept = bridge.sweepUnclaimed(chainId, address(0));
+
+        assertEq(swept, 60e18); // whatever bob never claimed
+        assertEq(meme.balanceOf(treasury), 60e18);
+        assertEq(bridge.lockedBalance(chainId), 0);
+    }
+
+    function test_sweepUnclaimed_wrappedToken() public {
+        vm.prank(alice);
+        bridge.depositToken(chainId, address(randomToken), 100e8, alice);
+        bytes32 root = _leaf(chainId, address(randomToken), bob, 40e8);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        vm.warp(block.timestamp + bridge.SNAPSHOT_CLAIM_WINDOW() + 1);
+        uint256 swept = bridge.sweepUnclaimed(chainId, address(randomToken));
+
+        assertEq(swept, 100e8);
+        assertEq(randomToken.balanceOf(treasury), 100e8);
+    }
+
+    function test_sweepUnclaimed_callableByAnyone() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        vm.warp(block.timestamp + bridge.SNAPSHOT_CLAIM_WINDOW() + 1);
+        vm.prank(makeAddr("randomSubmitter"));
+        bridge.sweepUnclaimed(chainId, address(0));
+        assertEq(meme.balanceOf(treasury), 100e18);
+    }
+
+    function test_sweepUnclaimed_revertsWhenNoSnapshot() public {
+        vm.expectRevert(VampBridge.NoSnapshot.selector);
+        bridge.sweepUnclaimed(chainId, address(0));
+    }
+
+    function test_sweepUnclaimed_revertsOnZeroRemainingBalance() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 40e18, alice);
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        bridge.claimSnapshot(chainId, address(0), bob, 40e18, new bytes32[](0));
+
+        vm.warp(block.timestamp + bridge.SNAPSHOT_CLAIM_WINDOW() + 1);
+        vm.expectRevert(VampBridge.ZeroAmount.selector);
+        bridge.sweepUnclaimed(chainId, address(0));
+    }
+
+    /// @notice Cross-implementation check: this exact root and these exact
+    /// proofs were generated by `infra/provisioner/src/merkleTree.ts` (the
+    /// real off-chain tree builder the provisioner uses to publish
+    /// snapshots) for chainId=1 and this exact 5-leaf set — a 5-leaf tree
+    /// specifically because it forces an odd-node-promotion at one level,
+    /// not just the trivial power-of-two case every other test above uses.
+    /// If solady's `MerkleProofLib` and the TS builder's hashing ever drift
+    /// out of sync, this is what catches it — a bug here would otherwise
+    /// only surface once a real chain tried to tear down for real.
+    function test_claimSnapshot_matchesRealTypeScriptMerkleTreeBuilder() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 150e18, alice);
+
+        bytes32 root = 0xd1abc48d62ef006c70cc69c5ad032bd7ca2d2a8f9babe01732653f0e984f7122;
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        address holder0 = 0x1111111111111111111111111111111111111111;
+        bytes32[] memory proof0 = new bytes32[](3);
+        proof0[0] = 0x2e1077e8cfe3acef9f6441e6fd5fc803166788e43a64cdff55340df404f50d9d;
+        proof0[1] = 0x9423ca58899884ac6b3f3a30a103c8315acb25816ec245374ad9036a0d4adfc9;
+        proof0[2] = 0x91e90b22299e7ce323a56089f85c535965b97202625ecb8a5cefbb103dcbc0ca;
+        bridge.claimSnapshot(chainId, address(0), holder0, 10e18, proof0);
+        assertEq(meme.balanceOf(holder0), 10e18);
+
+        address holder4 = 0x6666666666666666666666666666666666666666;
+        bytes32[] memory proof4 = new bytes32[](1);
+        proof4[0] = 0xb9421a5724fcd847d970dfda5e405986aa50cd5cc21116843d71861b79ad442b;
+        bridge.claimSnapshot(chainId, address(0), holder4, 50e18, proof4);
+        assertEq(meme.balanceOf(holder4), 50e18);
+
+        assertEq(bridge.lockedBalance(chainId), 150e18 - 10e18 - 50e18);
+    }
+
+    function test_sweepUnclaimed_emitsEvent() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+        bytes32 root = _leaf(chainId, address(0), bob, 40e18);
+        bridge.publishSnapshot(chainId, root, _validSnapshotSignature(chainId, root));
+
+        vm.warp(block.timestamp + bridge.SNAPSHOT_CLAIM_WINDOW() + 1);
+        vm.expectEmit(true, true, true, true);
+        emit VampBridge.UnclaimedSwept(chainId, address(0), 100e18);
+        bridge.sweepUnclaimed(chainId, address(0));
     }
 }

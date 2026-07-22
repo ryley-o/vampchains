@@ -158,8 +158,8 @@ contract VampChainRegistryTest is Test {
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "First", "F");
 
-        vm.warp(block.timestamp + YEAR + 1);
-        registry.deactivateIfDepleted(chainId);
+        vm.warp(block.timestamp + YEAR + registry.GRACE_PERIOD() + 1);
+        registry.deactivateIfGraceExpired(chainId);
         assertFalse(registry.isActive(chainId));
 
         vm.prank(bob);
@@ -222,12 +222,43 @@ contract VampChainRegistryTest is Test {
         MockERC20 meme = _memeToken();
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
-        vm.warp(block.timestamp + YEAR + 1);
-        registry.deactivateIfDepleted(chainId);
+        vm.warp(block.timestamp + YEAR + registry.GRACE_PERIOD() + 1);
+        registry.deactivateIfGraceExpired(chainId);
 
         vm.expectRevert(VampChainRegistry.ChainNotActive.selector);
         vm.prank(bob);
         registry.topUp(chainId, 1e6);
+    }
+
+    /// @notice The core "rescue" property of the grace period: a top-up
+    /// while depleted-but-still-in-grace both keeps the chain active
+    /// throughout (it never actually stopped) and pushes the grace
+    /// deadline back out, computed fresh from the new funding balance —
+    /// no special-cased "un-grace" logic needed, it just falls out of
+    /// `depletionInstant`/`graceDeadline` being pure functions of balance.
+    function test_topUp_duringGrace_rescuesChain() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.warp(block.timestamp + YEAR + 1); // depleted, but still within grace
+        assertTrue(registry.isActive(chainId));
+        assertFalse(registry.isPastGrace(chainId));
+
+        vm.prank(bob);
+        registry.topUp(chainId, ANNUAL_FEE);
+
+        // fundingBalance is now 2x ANNUAL_FEE (the original untouched
+        // balance plus the top-up — nothing auto-drains it over time,
+        // only withdrawEarned/topUp ever change it), so the new
+        // depletion instant is a full extra year out from creation, one
+        // second later than "now".
+        assertTrue(registry.isActive(chainId));
+        assertEq(registry.remainingRuntime(chainId), YEAR - 1);
+        assertGt(registry.graceDeadline(chainId), block.timestamp + YEAR);
+
+        // Grace-expiry deactivation no longer fires now that it's funded again.
+        assertFalse(registry.deactivateIfGraceExpired(chainId));
     }
 
     // ---------------------------------------------------------------------
@@ -282,7 +313,89 @@ contract VampChainRegistryTest is Test {
 
         vm.warp(block.timestamp + YEAR);
         assertEq(registry.remainingRuntime(chainId), 0);
+        // Paid runtime hitting zero does NOT deactivate on its own anymore —
+        // the chain stays open throughout its grace period. See the
+        // "grace period" test section below.
+        assertTrue(registry.isActive(chainId));
+    }
+
+    // ---------------------------------------------------------------------
+    // grace period
+    // ---------------------------------------------------------------------
+
+    function test_gracePeriod_isActiveThroughoutGraceWindow() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.warp(block.timestamp + YEAR); // exactly depleted
+        assertTrue(registry.isActive(chainId));
+        assertFalse(registry.isPastGrace(chainId));
+
+        vm.warp(block.timestamp + registry.GRACE_PERIOD()); // right at the edge
+        assertTrue(registry.isActive(chainId));
+        assertFalse(registry.isPastGrace(chainId));
+
+        vm.warp(block.timestamp + 1); // one second past grace
         assertFalse(registry.isActive(chainId));
+        assertTrue(registry.isPastGrace(chainId));
+    }
+
+    function test_gracePeriod_deactivateIfGraceExpired_falseWhileInGrace() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.warp(block.timestamp + YEAR + registry.GRACE_PERIOD()); // depleted, still exactly in grace
+        assertFalse(registry.deactivateIfGraceExpired(chainId));
+        assertTrue(registry.isActive(chainId));
+    }
+
+    function test_gracePeriod_deactivateIfGraceExpired_trueOncePastGrace() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.warp(block.timestamp + YEAR + registry.GRACE_PERIOD() + 1);
+        assertTrue(registry.deactivateIfGraceExpired(chainId));
+        assertFalse(registry.isActive(chainId));
+    }
+
+    function test_gracePeriod_zeroFeeChainNeverEntersGrace() public {
+        vm.prank(owner);
+        registry.setDefaultAnnualFee(0);
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Free Chain", "FREE");
+
+        assertEq(registry.depletionInstant(chainId), type(uint256).max);
+        assertEq(registry.graceDeadline(chainId), type(uint256).max);
+
+        vm.warp(block.timestamp + 100 * YEAR);
+        assertFalse(registry.isPastGrace(chainId));
+        assertTrue(registry.isActive(chainId));
+        assertFalse(registry.deactivateIfGraceExpired(chainId));
+    }
+
+    function test_gracePeriod_depletionInstantAndGraceDeadlineMatchExpectedOffset() public {
+        MockERC20 meme = _memeToken();
+        uint256 createdAt = block.timestamp;
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        assertEq(registry.depletionInstant(chainId), createdAt + YEAR);
+        assertEq(registry.graceDeadline(chainId), createdAt + YEAR + registry.GRACE_PERIOD());
+    }
+
+    function testFuzz_gracePeriod_isPastGraceExactlyAtDeadlinePlusOne(uint32 extraWarp) public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        uint256 deadline = registry.graceDeadline(chainId);
+        vm.warp(deadline + extraWarp);
+        assertEq(registry.isPastGrace(chainId), extraWarp > 0);
+        assertEq(registry.isActive(chainId), extraWarp == 0);
     }
 
     function testFuzz_remainingRuntime_neverExceedsFundingRuntime(uint32 warpSeconds, uint96 topUpAmount) public {
@@ -306,7 +419,7 @@ contract VampChainRegistryTest is Test {
     }
 
     // ---------------------------------------------------------------------
-    // withdrawEarned / deactivateIfDepleted
+    // withdrawEarned / deactivateIfGraceExpired
     // ---------------------------------------------------------------------
 
     function test_withdrawEarned_onlyOwner() public {
@@ -365,12 +478,20 @@ contract VampChainRegistryTest is Test {
         assertEq(runtimeAfter, runtimeBefore);
     }
 
-    function test_withdrawEarned_fullDrainDeactivates() public {
+    /// @notice Fully draining `fundingBalance` no longer auto-deactivates —
+    /// that used to bypass the grace period entirely (a routine protocol
+    /// fee withdrawal, timed any time after nominal depletion, would
+    /// instantly and permanently kill a chain even one second into its
+    /// grace window). The chain stays `active` in storage and — since it's
+    /// still within grace at YEAR+1 — `isActive()` correctly stays true.
+    /// Only `deactivateIfGraceExpired`, once grace has genuinely elapsed,
+    /// ever flips that.
+    function test_withdrawEarned_fullDrainDoesNotBypassGracePeriod() public {
         MockERC20 meme = _memeToken();
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
-        vm.warp(block.timestamp + YEAR + 1);
+        vm.warp(block.timestamp + YEAR + 1); // depleted, but still within grace
 
         vm.prank(owner);
         uint256 withdrawn = registry.withdrawEarned(chainId);
@@ -378,35 +499,43 @@ contract VampChainRegistryTest is Test {
 
         VampChainRegistry.VampChain memory c = registry.getChain(chainId);
         assertEq(c.fundingBalance, 0);
-        assertFalse(c.active);
+        assertTrue(c.active);
+        assertEq(registry.activeChainByToken(address(meme)), chainId);
+        assertTrue(registry.isActive(chainId));
+
+        // Once grace genuinely expires, deactivation still works correctly
+        // even with fundingBalance already at zero.
+        vm.warp(block.timestamp + registry.GRACE_PERIOD() + 1);
+        assertTrue(registry.deactivateIfGraceExpired(chainId));
+        assertFalse(registry.isActive(chainId));
         assertEq(registry.activeChainByToken(address(meme)), 0);
     }
 
-    function test_deactivateIfDepleted_permissionless() public {
+    function test_deactivateIfGraceExpired_permissionless() public {
         MockERC20 meme = _memeToken();
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
-        vm.warp(block.timestamp + YEAR + 1);
+        vm.warp(block.timestamp + YEAR + registry.GRACE_PERIOD() + 1);
 
         vm.prank(bob); // anyone can call this, not just owner
-        bool deactivated = registry.deactivateIfDepleted(chainId);
+        bool deactivated = registry.deactivateIfGraceExpired(chainId);
         assertTrue(deactivated);
         assertFalse(registry.isActive(chainId));
     }
 
-    function test_deactivateIfDepleted_falseWhileStillFunded() public {
+    function test_deactivateIfGraceExpired_falseWhileStillFunded() public {
         MockERC20 meme = _memeToken();
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
-        bool deactivated = registry.deactivateIfDepleted(chainId);
+        bool deactivated = registry.deactivateIfGraceExpired(chainId);
         assertFalse(deactivated);
         assertTrue(registry.isActive(chainId));
     }
 
-    function test_deactivateIfDepleted_revertsOnUnknownChain() public {
+    function test_deactivateIfGraceExpired_revertsOnUnknownChain() public {
         vm.expectRevert(VampChainRegistry.ChainNotFound.selector);
-        registry.deactivateIfDepleted(999);
+        registry.deactivateIfGraceExpired(999);
     }
 
     // ---------------------------------------------------------------------
