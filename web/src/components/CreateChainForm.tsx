@@ -145,8 +145,7 @@ export function CreateChainForm() {
                 {derivedName} <span className="text-bone-dim/60">(${derivedSymbol})</span>
               </p>
               <p className="text-xs text-bone-dim/50">
-                {String(tokenDecimals)} decimals · your vampchain will be named &amp; ticker&apos;d to
-                match
+                {`${String(tokenDecimals)} decimals · your vampchain will be named & ticker'd to match`}
               </p>
             </div>
           </div>
