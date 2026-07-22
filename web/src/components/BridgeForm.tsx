@@ -6,6 +6,7 @@ import { useAccount, useReadContract, useSwitchChain, useWaitForTransactionRecei
 import { BRIDGE_ADDRESS, BRIDGE_ABI, BURN_ADDRESS, GATEWAY_URL, L1_CHAIN_ID } from "@/lib/contracts";
 import { ERC20_ABI } from "@/lib/erc20Abi";
 import { makeVampchainChain } from "@/lib/viemClients";
+import { AddToWalletButton } from "@/components/AddToWalletButton";
 
 interface BridgeFormProps {
   chainId: bigint;
@@ -102,22 +103,6 @@ export function BridgeForm({
     };
   }, [burnTxHash, claim?.status]);
 
-  async function addToWallet() {
-    const eth = getEthereumProvider();
-    if (!eth) return;
-    await eth.request({
-      method: "wallet_addEthereumChain",
-      params: [
-        {
-          chainId: `0x${evmChainId.toString(16)}`,
-          chainName: `vampchain-${chainId}`,
-          nativeCurrency: { name: baseTokenSymbol, symbol: baseTokenSymbol, decimals: 18 },
-          rpcUrls: [gatewayRpcUrl],
-        },
-      ],
-    });
-  }
-
   async function burnToWithdraw() {
     const eth = getEthereumProvider();
     if (!eth || !address) return;
@@ -129,7 +114,21 @@ export function BridgeForm({
       try {
         await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: `0x${evmChainId.toString(16)}` }] });
       } catch {
-        await addToWallet();
+        // Not added yet — add it, then switch, mirroring GeneralBridgeForm's
+        // identical fallback. Distinct from the standalone <AddToWalletButton>
+        // rendered below: this is silent internal plumbing so the withdraw
+        // transaction itself can be submitted, not a user-facing button.
+        await eth.request({
+          method: "wallet_addEthereumChain",
+          params: [
+            {
+              chainId: `0x${evmChainId.toString(16)}`,
+              chainName: `vampchain-${chainId}`,
+              nativeCurrency: { name: baseTokenSymbol, symbol: baseTokenSymbol, decimals: 18 },
+              rpcUrls: [gatewayRpcUrl],
+            },
+          ],
+        });
         await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: `0x${evmChainId.toString(16)}` }] });
       }
 
@@ -223,12 +222,14 @@ export function BridgeForm({
           pay your own gas and we never touch your funds in between.
         </p>
 
-        <button
-          onClick={addToWallet}
-          className="mt-4 rounded-full border border-hairline-strong px-5 py-2 text-sm font-medium text-bone-dim transition-colors hover:border-blood/50 hover:text-bone"
-        >
-          Add vampchain to wallet
-        </button>
+        <div className="mt-4">
+          <AddToWalletButton
+            evmChainId={evmChainId}
+            name={`vampchain-${chainId}`}
+            symbol={baseTokenSymbol}
+            rpcUrl={gatewayRpcUrl}
+          />
+        </div>
 
         {!claim && (
           <div className="mt-4 flex gap-2">

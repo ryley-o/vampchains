@@ -12,6 +12,7 @@ import { GeneralBridgeForm } from "@/components/GeneralBridgeForm";
 import { TopUpForm } from "@/components/TopUpForm";
 import { ExplorerPanel } from "@/components/ExplorerPanel";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { AddToWalletButton } from "@/components/AddToWalletButton";
 import { RunwayMeter } from "@/components/brand/RunwayMeter";
 
 export const dynamic = "force-dynamic";
@@ -119,7 +120,17 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
             </p>
           </div>
         </div>
-        <StatusPill status={dbChain.status} />
+        <div className="flex flex-col items-end gap-2">
+          <StatusPill status={dbChain.status} />
+          {isActive && (
+            <AddToWalletButton
+              evmChainId={dbChain.evmChainId}
+              name={dbChain.name}
+              symbol={dbChain.symbol}
+              rpcUrl={gatewayRpcUrl}
+            />
+          )}
+        </div>
       </div>
 
       <Panel title="Funding" eyebrow="Runway">

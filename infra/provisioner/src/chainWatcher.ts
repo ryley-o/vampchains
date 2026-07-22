@@ -1,16 +1,19 @@
 import type { Address, PublicClient } from "viem";
-import { prisma } from "@vampchains/db";
+import { Prisma, prisma } from "@vampchains/db";
 import { CHAIN_CREATED_EVENT, ERC20_METADATA_ABI } from "./abi.js";
 import { getLogsChunked } from "./chunkedGetLogs.js";
+import { generateEvmChainIdCandidate } from "./evmChainId.js";
 
 const CURSOR_ID = "registry-chains";
 
-/// Vampchain EVM chain ids are derived deterministically from the registry
-/// chainId so the provisioner never needs a separate counter to track.
-const EVM_CHAIN_ID_OFFSET = 900_000n;
-export function deriveEvmChainId(registryChainId: bigint): bigint {
-  return EVM_CHAIN_ID_OFFSET + registryChainId;
-}
+/// Every attempt draws a fresh random candidate (see evmChainId.ts for why
+/// random beats a predictable sequential scheme) and relies on
+/// `Chain.evmChainId`'s DB-level unique constraint to make internal
+/// collision impossible, not just unlikely — a conflicting insert throws
+/// Prisma's P2002 and just gets retried with a new draw. At this range
+/// (~2.1 billion candidates) a real collision is astronomically rare; this
+/// loop exists to make that a guarantee rather than a statistic.
+const MAX_EVM_CHAIN_ID_ATTEMPTS = 10;
 
 /// Scans for new VampChainRegistry.ChainCreated events and queues each one
 /// for provisioning (PENDING_PROVISION row in Postgres). Idempotent: a chain
@@ -47,24 +50,56 @@ export async function pollNewChains(l1Client: PublicClient, registryAddress: Add
 
     const { tokenName, tokenSymbol, decimals } = await readTokenMetadata(l1Client, baseToken);
 
-    await prisma.chain.create({
-      data: {
-        chainId,
-        evmChainId: deriveEvmChainId(chainId),
-        baseToken,
-        baseTokenName: tokenName,
-        baseTokenSymbol: tokenSymbol,
-        baseTokenDecimals: decimals,
-        name,
-        symbol,
-        creator,
-        status: "PENDING_PROVISION",
-      },
+    const evmChainId = await createChainWithFreshEvmChainId({
+      chainId,
+      baseToken,
+      baseTokenName: tokenName,
+      baseTokenSymbol: tokenSymbol,
+      baseTokenDecimals: decimals,
+      name,
+      symbol,
+      creator,
     });
-    console.log(`[chains] discovered new chain ${chainId} (${name}/${symbol}), queued for provisioning`);
+    console.log(
+      `[chains] discovered new chain ${chainId} (${name}/${symbol}), assigned evmChainId ${evmChainId}, queued for provisioning`
+    );
   }
 
   await prisma.indexerCursor.update({ where: { id: CURSOR_ID }, data: { lastBlock: safeLatest } });
+}
+
+interface NewChainData {
+  chainId: bigint;
+  baseToken: Address;
+  baseTokenName: string;
+  baseTokenSymbol: string;
+  baseTokenDecimals: number;
+  name: string;
+  symbol: string;
+  creator: Address;
+}
+
+/// Creates the Chain row with a freshly-generated random evmChainId,
+/// retrying with a new draw on the vanishingly rare event of a P2002
+/// unique-constraint conflict — see the module-level comment above and
+/// evmChainId.ts for why this is random rather than derived from
+/// `chainId` directly.
+async function createChainWithFreshEvmChainId(data: NewChainData): Promise<bigint> {
+  for (let attempt = 1; attempt <= MAX_EVM_CHAIN_ID_ATTEMPTS; attempt++) {
+    const evmChainId = generateEvmChainIdCandidate();
+    try {
+      await prisma.chain.create({ data: { ...data, evmChainId, status: "PENDING_PROVISION" } });
+      return evmChainId;
+    } catch (err) {
+      const isEvmChainIdConflict =
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === "P2002" &&
+        (err.meta?.target as string[] | undefined)?.includes("evmChainId");
+      if (!isEvmChainIdConflict) throw err;
+      console.warn(`[chains] evmChainId ${evmChainId} collided on attempt ${attempt}, drawing again`);
+    }
+  }
+  throw new Error(`failed to find a free evmChainId after ${MAX_EVM_CHAIN_ID_ATTEMPTS} attempts`);
 }
 
 async function readTokenMetadata(l1Client: PublicClient, baseToken: Address) {
