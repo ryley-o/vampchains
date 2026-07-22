@@ -109,6 +109,49 @@ contract VampBridgeTest is Test {
         return _signClaimToken(signerKey, address(bridge), vampChainId, token, to, amount, txHash);
     }
 
+    function _signClaimSwept(
+        uint256 pk,
+        address verifyingContract,
+        uint256 vampChainId,
+        uint256 amount,
+        bytes32 sidechainTxHash
+    ) internal view returns (bytes memory signature) {
+        bytes32 structHash = keccak256(abi.encode(bridge.CLAIM_SWEPT_TYPEHASH(), vampChainId, amount, sidechainTxHash));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(verifyingContract), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        signature = abi.encodePacked(r, s, v);
+    }
+
+    function _validSweptSignature(uint256 vampChainId, uint256 amount, bytes32 sidechainTxHash)
+        internal
+        view
+        returns (bytes memory)
+    {
+        return _signClaimSwept(signerKey, address(bridge), vampChainId, amount, sidechainTxHash);
+    }
+
+    function _signBurnedFees(
+        uint256 pk,
+        address verifyingContract,
+        uint256 vampChainId,
+        uint256 cumulativeBurned,
+        uint256 asOfBlock
+    ) internal view returns (bytes memory signature) {
+        bytes32 structHash =
+            keccak256(abi.encode(bridge.BURNED_FEES_TYPEHASH(), vampChainId, cumulativeBurned, asOfBlock));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(verifyingContract), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        signature = abi.encodePacked(r, s, v);
+    }
+
+    function _validBurnedFeesSignature(uint256 vampChainId, uint256 cumulativeBurned, uint256 asOfBlock)
+        internal
+        view
+        returns (bytes memory)
+    {
+        return _signBurnedFees(signerKey, address(bridge), vampChainId, cumulativeBurned, asOfBlock);
+    }
+
     // ---------------------------------------------------------------------
     // constructor
     // ---------------------------------------------------------------------
@@ -863,5 +906,411 @@ contract VampBridgeTest is Test {
 
         assertEq(randomToken.balanceOf(bob), claimAmount);
         assertEq(bridge.lockedBalanceGeneral(chainId, address(randomToken)), depositAmount - claimAmount);
+    }
+
+    // ---------------------------------------------------------------------
+    // protocol fee revenue: claimSwept (tips)
+    // ---------------------------------------------------------------------
+
+    function test_claimSwept_happyPath_splitsFiftyFiftyWithCreator() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice); // alice is also this chain's creator
+
+        bytes32 txHash = keccak256("sweep1");
+        bytes memory sig = _validSweptSignature(chainId, 40e18, txHash);
+
+        (uint256 toProtocol, uint256 toCreator) = bridge.claimSwept(chainId, 40e18, txHash, sig);
+
+        assertEq(toProtocol, 20e18);
+        assertEq(toCreator, 20e18);
+        assertEq(meme.balanceOf(treasury), 20e18);
+        assertEq(meme.balanceOf(alice), 1_000_000e18 - 100e18 + 20e18); // minted, deposited, then paid back their share
+        assertEq(bridge.lockedBalance(chainId), 60e18);
+        assertTrue(bridge.claimed(txHash));
+    }
+
+    function test_claimSwept_oddAmount_protocolGetsExtraUnit() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes32 txHash = keccak256("sweep-odd");
+        bytes memory sig = _validSweptSignature(chainId, 7, txHash);
+
+        (uint256 toProtocol, uint256 toCreator) = bridge.claimSwept(chainId, 7, txHash, sig);
+
+        assertEq(toCreator, 3);
+        assertEq(toProtocol, 4);
+    }
+
+    function test_claimSwept_emitsEvent() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes32 txHash = keccak256("sweep1");
+        bytes memory sig = _validSweptSignature(chainId, 40e18, txHash);
+
+        vm.expectEmit(true, true, true, true);
+        emit VampBridge.SweptClaimed(chainId, 20e18, 20e18, txHash);
+        bridge.claimSwept(chainId, 40e18, txHash, sig);
+    }
+
+    function test_claimSwept_callableByAnyone() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes32 txHash = keccak256("sweep1");
+        bytes memory sig = _validSweptSignature(chainId, 40e18, txHash);
+
+        vm.prank(makeAddr("randomSubmitter"));
+        bridge.claimSwept(chainId, 40e18, txHash, sig);
+
+        assertEq(meme.balanceOf(treasury), 20e18);
+    }
+
+    function test_claimSwept_revertsOnReplay() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes32 txHash = keccak256("sweep1");
+        bytes memory sig = _validSweptSignature(chainId, 40e18, txHash);
+        bridge.claimSwept(chainId, 40e18, txHash, sig);
+
+        vm.expectRevert(VampBridge.AlreadyClaimed.selector);
+        bridge.claimSwept(chainId, 40e18, txHash, sig);
+    }
+
+    /// @notice A tip-sweep tx hash and a normal user-withdrawal tx hash share
+    /// the same `claimed` mapping by design — proves a `claim()` signature
+    /// can't be replayed through `claimSwept` (distinct typehash) even if
+    /// someone reused the same sidechainTxHash value across both.
+    function test_claimSwept_revertsOnCrossPathReplayFromNormalClaim() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes32 txHash = keccak256("shared-hash");
+        bytes memory normalSig = _validSignature(chainId, bob, 40e18, txHash);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimSwept(chainId, 40e18, txHash, normalSig);
+    }
+
+    function test_claimSwept_revertsOnWrongSigner() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes32 txHash = keccak256("sweep1");
+        uint256 attackerKey = 0xBADBAD;
+        bytes memory sig = _signClaimSwept(attackerKey, address(bridge), chainId, 40e18, txHash);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimSwept(chainId, 40e18, txHash, sig);
+    }
+
+    function test_claimSwept_revertsIfAmountTampered() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes32 txHash = keccak256("sweep1");
+        bytes memory sig = _validSweptSignature(chainId, 40e18, txHash);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimSwept(chainId, 41e18, txHash, sig);
+    }
+
+    function test_claimSwept_revertsIfChainIdTampered() public {
+        MockERC20 meme2 = new MockERC20("Other Base", "OTH", 18);
+        usdc.mint(bob, ANNUAL_FEE);
+        vm.prank(bob);
+        usdc.approve(address(registry), ANNUAL_FEE);
+        vm.prank(bob);
+        uint256 chainId2 = registry.createChain(address(meme2), "Other", "OTH");
+        meme2.mint(bob, 100e18);
+        vm.prank(bob);
+        meme2.approve(address(bridge), type(uint256).max);
+        vm.prank(bob);
+        bridge.deposit(chainId2, 100e18, bob);
+
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes32 txHash = keccak256("sweep1");
+        bytes memory sig = _validSweptSignature(chainId, 40e18, txHash);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimSwept(chainId2, 40e18, txHash, sig);
+    }
+
+    function test_claimSwept_revertsOnCrossContractReplay() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        address otherBridgeAddress = makeAddr("otherBridge");
+        bytes32 txHash = keccak256("sweep1");
+        bytes memory sig = _signClaimSwept(signerKey, otherBridgeAddress, chainId, 40e18, txHash);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimSwept(chainId, 40e18, txHash, sig);
+    }
+
+    function test_claimSwept_revertsWhenExceedsLocked() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 10e18, alice);
+
+        bytes32 txHash = keccak256("sweep1");
+        bytes memory sig = _validSweptSignature(chainId, 20e18, txHash);
+
+        vm.expectRevert(VampBridge.InsufficientLocked.selector);
+        bridge.claimSwept(chainId, 20e18, txHash, sig);
+    }
+
+    function test_claimSwept_revertsOnZeroAmount() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 10e18, alice);
+
+        bytes32 txHash = keccak256("sweep1");
+        bytes memory sig = _validSweptSignature(chainId, 0, txHash);
+
+        vm.expectRevert(VampBridge.ZeroAmount.selector);
+        bridge.claimSwept(chainId, 0, txHash, sig);
+    }
+
+    function test_claimSwept_revertsWhenPaused() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 10e18, alice);
+        vm.prank(owner);
+        bridge.setPaused(true);
+
+        bytes32 txHash = keccak256("sweep1");
+        bytes memory sig = _validSweptSignature(chainId, 1e18, txHash);
+
+        vm.expectRevert(VampBridge.BridgePaused.selector);
+        bridge.claimSwept(chainId, 1e18, txHash, sig);
+    }
+
+    function test_claimSwept_worksAfterChainDeactivated() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        vm.warp(block.timestamp + YEAR + 1);
+        registry.deactivateIfDepleted(chainId);
+        assertFalse(registry.isActive(chainId));
+
+        bytes32 txHash = keccak256("sweep1");
+        bytes memory sig = _validSweptSignature(chainId, 40e18, txHash);
+        bridge.claimSwept(chainId, 40e18, txHash, sig);
+
+        assertEq(meme.balanceOf(treasury), 20e18);
+    }
+
+    // ---------------------------------------------------------------------
+    // protocol fee revenue: claimBurnedFees (base fee)
+    // ---------------------------------------------------------------------
+
+    function test_claimBurnedFees_happyPath_splitsFiftyFiftyWithCreator() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes memory sig = _validBurnedFeesSignature(chainId, 40e18, 12345);
+        (uint256 toProtocol, uint256 toCreator) = bridge.claimBurnedFees(chainId, 40e18, 12345, sig);
+
+        assertEq(toProtocol, 20e18);
+        assertEq(toCreator, 20e18);
+        assertEq(meme.balanceOf(treasury), 20e18);
+        assertEq(bridge.lockedBalance(chainId), 60e18);
+        assertEq(bridge.burnedFeesClaimed(chainId), 40e18);
+    }
+
+    function test_claimBurnedFees_emitsEvent() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes memory sig = _validBurnedFeesSignature(chainId, 40e18, 12345);
+
+        vm.expectEmit(true, true, true, true);
+        emit VampBridge.BurnedFeesClaimed(chainId, 20e18, 20e18, 40e18, 12345);
+        bridge.claimBurnedFees(chainId, 40e18, 12345, sig);
+    }
+
+    /// @notice Only the increment over what's already been claimed gets
+    /// paid out — the core "linear, exact, never double-pay" property.
+    function test_claimBurnedFees_onlyPaysIncrementOnRepeatedCalls() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes memory sig1 = _validBurnedFeesSignature(chainId, 40e18, 100);
+        bridge.claimBurnedFees(chainId, 40e18, 100, sig1);
+        assertEq(bridge.lockedBalance(chainId), 60e18);
+
+        bytes memory sig2 = _validBurnedFeesSignature(chainId, 55e18, 200);
+        (uint256 toProtocol, uint256 toCreator) = bridge.claimBurnedFees(chainId, 55e18, 200, sig2);
+
+        assertEq(toProtocol + toCreator, 15e18); // only the new 15e18 increment, not the full 55e18 again
+        assertEq(bridge.lockedBalance(chainId), 45e18);
+        assertEq(bridge.burnedFeesClaimed(chainId), 55e18);
+    }
+
+    /// @notice A stale or equal attestation is a harmless no-op revert, not
+    /// a double-pay — proves resubmission safety.
+    function test_claimBurnedFees_revertsOnStaleOrEqualAttestation() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes memory sig = _validBurnedFeesSignature(chainId, 40e18, 100);
+        bridge.claimBurnedFees(chainId, 40e18, 100, sig);
+
+        vm.expectRevert(VampBridge.NothingToClaim.selector);
+        bridge.claimBurnedFees(chainId, 40e18, 100, sig);
+
+        bytes memory staleSig = _validBurnedFeesSignature(chainId, 30e18, 50);
+        vm.expectRevert(VampBridge.NothingToClaim.selector);
+        bridge.claimBurnedFees(chainId, 30e18, 50, staleSig);
+    }
+
+    /// @notice A miscomputed attestation claiming more than is actually
+    /// locked gets clamped to what's available rather than reverting or
+    /// over-draining — the ceiling is defensive, not a hard failure.
+    function test_claimBurnedFees_clampsToAvailableLockedBalance() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 10e18, alice);
+
+        bytes memory sig = _validBurnedFeesSignature(chainId, 40e18, 100);
+        (uint256 toProtocol, uint256 toCreator) = bridge.claimBurnedFees(chainId, 40e18, 100, sig);
+
+        assertEq(toProtocol + toCreator, 10e18);
+        assertEq(bridge.lockedBalance(chainId), 0);
+        assertEq(bridge.burnedFeesClaimed(chainId), 10e18); // only what was actually paid, not the full 40e18 attested
+
+        // A later, higher attestation can still collect the remainder once
+        // more balance becomes available.
+        meme.mint(alice, 100e18);
+        vm.prank(alice);
+        bridge.deposit(chainId, 20e18, alice);
+
+        bytes memory sig2 = _validBurnedFeesSignature(chainId, 40e18, 200);
+        (uint256 toProtocol2, uint256 toCreator2) = bridge.claimBurnedFees(chainId, 40e18, 200, sig2);
+        assertEq(toProtocol2 + toCreator2, 20e18);
+        assertEq(bridge.burnedFeesClaimed(chainId), 30e18);
+    }
+
+    function test_claimBurnedFees_callableByAnyone() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes memory sig = _validBurnedFeesSignature(chainId, 40e18, 100);
+        vm.prank(makeAddr("randomSubmitter"));
+        bridge.claimBurnedFees(chainId, 40e18, 100, sig);
+
+        assertEq(meme.balanceOf(treasury), 20e18);
+    }
+
+    function test_claimBurnedFees_revertsOnWrongSigner() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        uint256 attackerKey = 0xBADBAD;
+        bytes memory sig = _signBurnedFees(attackerKey, address(bridge), chainId, 40e18, 100);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimBurnedFees(chainId, 40e18, 100, sig);
+    }
+
+    function test_claimBurnedFees_revertsIfCumulativeTampered() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes memory sig = _validBurnedFeesSignature(chainId, 40e18, 100);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimBurnedFees(chainId, 41e18, 100, sig);
+    }
+
+    function test_claimBurnedFees_revertsIfAsOfBlockTampered() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes memory sig = _validBurnedFeesSignature(chainId, 40e18, 100);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimBurnedFees(chainId, 40e18, 101, sig);
+    }
+
+    function test_claimBurnedFees_revertsIfChainIdTampered() public {
+        MockERC20 meme2 = new MockERC20("Other Base", "OTH", 18);
+        usdc.mint(bob, ANNUAL_FEE);
+        vm.prank(bob);
+        usdc.approve(address(registry), ANNUAL_FEE);
+        vm.prank(bob);
+        uint256 chainId2 = registry.createChain(address(meme2), "Other", "OTH");
+        meme2.mint(bob, 100e18);
+        vm.prank(bob);
+        meme2.approve(address(bridge), type(uint256).max);
+        vm.prank(bob);
+        bridge.deposit(chainId2, 100e18, bob);
+
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        bytes memory sig = _validBurnedFeesSignature(chainId, 40e18, 100);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimBurnedFees(chainId2, 40e18, 100, sig);
+    }
+
+    function test_claimBurnedFees_revertsOnCrossContractReplay() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        address otherBridgeAddress = makeAddr("otherBridge");
+        bytes memory sig = _signBurnedFees(signerKey, otherBridgeAddress, chainId, 40e18, 100);
+
+        vm.expectRevert(VampBridge.InvalidSignature.selector);
+        bridge.claimBurnedFees(chainId, 40e18, 100, sig);
+    }
+
+    function test_claimBurnedFees_revertsWhenPaused() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+        vm.prank(owner);
+        bridge.setPaused(true);
+
+        bytes memory sig = _validBurnedFeesSignature(chainId, 40e18, 100);
+
+        vm.expectRevert(VampBridge.BridgePaused.selector);
+        bridge.claimBurnedFees(chainId, 40e18, 100, sig);
+    }
+
+    function test_claimBurnedFees_worksAfterChainDeactivated() public {
+        vm.prank(alice);
+        bridge.deposit(chainId, 100e18, alice);
+
+        vm.warp(block.timestamp + YEAR + 1);
+        registry.deactivateIfDepleted(chainId);
+        assertFalse(registry.isActive(chainId));
+
+        bytes memory sig = _validBurnedFeesSignature(chainId, 40e18, 100);
+        bridge.claimBurnedFees(chainId, 40e18, 100, sig);
+
+        assertEq(meme.balanceOf(treasury), 20e18);
+    }
+
+    function testFuzz_claimBurnedFees_neverExceedsLockedBalance(uint96 depositAmount, uint96 cumulativeBurned)
+        public
+    {
+        vm.assume(depositAmount > 0 && depositAmount < 1_000_000_000e18);
+
+        meme.mint(alice, depositAmount);
+        vm.prank(alice);
+        bridge.deposit(chainId, depositAmount, alice);
+
+        bytes memory sig = _validBurnedFeesSignature(chainId, cumulativeBurned, 1);
+        if (cumulativeBurned == 0) {
+            vm.expectRevert(VampBridge.NothingToClaim.selector);
+            bridge.claimBurnedFees(chainId, cumulativeBurned, 1, sig);
+            return;
+        }
+
+        (uint256 toProtocol, uint256 toCreator) = bridge.claimBurnedFees(chainId, cumulativeBurned, 1, sig);
+        assertLe(toProtocol + toCreator, depositAmount);
+        assertGe(bridge.lockedBalance(chainId), 0);
     }
 }

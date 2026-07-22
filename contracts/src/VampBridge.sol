@@ -289,4 +289,137 @@ contract VampBridge is Ownable, ReentrancyGuard, EIP712 {
         paused = paused_;
         emit PausedSet(paused_);
     }
+
+    // ---------------------------------------------------------------------
+    // Protocol fee revenue: swept tips + recaptured base-fee burn
+    //
+    // Every vampchain's gas fees split into two pieces (see
+    // docs/ARCHITECTURE.md "Why geth Clique PoA"): priority fees (tips) land
+    // as real, spendable native balance at the Clique signer's own address
+    // (`--miner.etherbase`); the EIP-1559 base fee is destroyed outright by
+    // the EVM itself, unconditionally, on every chain. Both are real
+    // protocol-attributable revenue, and both are split 50/50 with the
+    // chain's own creator (`registry.getChain(chainId).creator`) — an
+    // ongoing reward for having funded the chain, on top of the one-time
+    // creation fee. Neither function below accepts a caller-supplied
+    // recipient: both addresses are always read live from the registry, so
+    // even a fully compromised signer key can only ever redirect this
+    // revenue between the chain's creator and the protocol treasury, never
+    // to an arbitrary third party — unlike `claim`/`claimToken`, which must
+    // accept an arbitrary `to` because that's the whole point of a user
+    // withdrawal.
+    // ---------------------------------------------------------------------
+
+    /// @notice Cumulative base-fee-burn amount already paid out per chain —
+    /// checked against each new attestation in `claimBurnedFees` so a chain
+    /// can never be paid out more in total than has actually burned.
+    mapping(uint256 => uint256) public burnedFeesClaimed;
+
+    bytes32 public constant CLAIM_SWEPT_TYPEHASH =
+        keccak256("ClaimSwept(uint256 vampChainId,uint256 amount,bytes32 sidechainTxHash)");
+
+    bytes32 public constant BURNED_FEES_TYPEHASH =
+        keccak256("BurnedFees(uint256 vampChainId,uint256 cumulativeBurned,uint256 asOfBlock)");
+
+    event SweptClaimed(uint256 indexed chainId, uint256 toProtocol, uint256 toCreator, bytes32 indexed sidechainTxHash);
+    event BurnedFeesClaimed(
+        uint256 indexed chainId, uint256 toProtocol, uint256 toCreator, uint256 cumulativeBurned, uint256 asOfBlock
+    );
+
+    error NothingToClaim();
+
+    /// @notice Claim `amount` of `chainId`'s base token, split 50/50 between
+    /// the protocol treasury and the chain's creator, authorized by an
+    /// EIP-712 signature attesting to a real burn-to-treasury transfer
+    /// *from the chain's own Clique signer/etherbase address* — i.e. swept
+    /// tip revenue, not a user withdrawal. Shares the `claimed` replay guard
+    /// with `claim`/`claimToken` (a tip-sweep burn tx hash can never
+    /// collide with a user's, they're distinct real sidechain
+    /// transactions). Permissionless like every other claim path here:
+    /// anyone can submit it — most naturally an admin script, or the
+    /// chain's own creator pulling their share whenever they like.
+    function claimSwept(uint256 chainId, uint256 amount, bytes32 sidechainTxHash, bytes calldata signature)
+        external
+        nonReentrant
+        whenNotPaused
+        returns (uint256 toProtocol, uint256 toCreator)
+    {
+        if (amount == 0) revert ZeroAmount();
+        if (claimed[sidechainTxHash]) revert AlreadyClaimed();
+        if (lockedBalance[chainId] < amount) revert InsufficientLocked();
+
+        bytes32 structHash = keccak256(abi.encode(CLAIM_SWEPT_TYPEHASH, chainId, amount, sidechainTxHash));
+        address recovered = ECDSA.recoverCalldata(_hashTypedData(structHash), signature);
+        if (recovered != signer) revert InvalidSignature();
+
+        claimed[sidechainTxHash] = true;
+        lockedBalance[chainId] -= amount;
+
+        (toProtocol, toCreator) = _payProtocolAndCreator(chainId, amount);
+        emit SweptClaimed(chainId, toProtocol, toCreator, sidechainTxHash);
+    }
+
+    /// @notice Claim the protocol's share of `chainId`'s cumulative
+    /// EIP-1559 base-fee burn, split 50/50 with the creator, authorized by
+    /// an EIP-712 signature attesting to a cumulative burned-fee total as of
+    /// a given sidechain block. No sidechain-side transaction underlies
+    /// this at all — base fee is destroyed outright by the EVM, never
+    /// sitting in any address — so this claims directly against the
+    /// L1-side surplus that burning creates instead: every vampchain's
+    /// native currency supply is minted 1:1 against `lockedBalance[chainId]`,
+    /// and base-fee burn is the only thing that ever destroys that native
+    /// supply, so `lockedBalance` ends up exceeding real circulating
+    /// (non-treasury) supply by exactly the cumulative burn total.
+    /// Withdrawing exactly that amount, never more, leaves every remaining
+    /// real holder still fully backed 1:1 — provably, not merely because
+    /// the treasury happens to be over-provisioned. Monotonic and
+    /// idempotent: only ever pays out the *increment* over what's already
+    /// been claimed, so resubmitting a stale (lower-or-equal) attestation is
+    /// a harmless no-op revert rather than a double-pay, and the amount
+    /// actually paid is clamped to `lockedBalance[chainId]` as a defensive
+    /// ceiling against a miscomputed attestation.
+    function claimBurnedFees(uint256 chainId, uint256 cumulativeBurned, uint256 asOfBlock, bytes calldata signature)
+        external
+        nonReentrant
+        whenNotPaused
+        returns (uint256 toProtocol, uint256 toCreator)
+    {
+        uint256 alreadyClaimed = burnedFeesClaimed[chainId];
+        if (cumulativeBurned <= alreadyClaimed) revert NothingToClaim();
+
+        bytes32 structHash = keccak256(abi.encode(BURNED_FEES_TYPEHASH, chainId, cumulativeBurned, asOfBlock));
+        address recovered = ECDSA.recoverCalldata(_hashTypedData(structHash), signature);
+        if (recovered != signer) revert InvalidSignature();
+
+        uint256 amount = cumulativeBurned - alreadyClaimed;
+        uint256 available = lockedBalance[chainId];
+        if (amount > available) amount = available;
+        if (amount == 0) revert NothingToClaim();
+
+        burnedFeesClaimed[chainId] = alreadyClaimed + amount;
+        lockedBalance[chainId] -= amount;
+
+        (toProtocol, toCreator) = _payProtocolAndCreator(chainId, amount);
+        emit BurnedFeesClaimed(chainId, toProtocol, toCreator, cumulativeBurned, asOfBlock);
+    }
+
+    /// @notice Splits `amount` of `chainId`'s base token 50/50 between the
+    /// protocol treasury and the chain's creator — both read live from the
+    /// registry, never caller-supplied. The creator's share rounds down on
+    /// an odd amount; the protocol takes the extra unit. `lockedBalance`
+    /// has already been decremented by the caller before this runs.
+    function _payProtocolAndCreator(uint256 chainId, uint256 amount)
+        internal
+        returns (uint256 toProtocol, uint256 toCreator)
+    {
+        toCreator = amount / 2;
+        toProtocol = amount - toCreator;
+
+        address baseToken = registry.baseTokenOf(chainId);
+        address creator = registry.getChain(chainId).creator;
+        address protocolTreasury = registry.protocolTreasury();
+
+        baseToken.safeTransfer(protocolTreasury, toProtocol);
+        baseToken.safeTransfer(creator, toCreator);
+    }
 }

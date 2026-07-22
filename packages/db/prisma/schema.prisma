@@ -26,6 +26,13 @@ enum FundingEventKind {
   WITHDRAWAL
 }
 
+enum WithdrawalKind {
+  USER // a real user's own withdrawal (VampBridge.claim/claimToken)
+  FEE_SWEEP // protocol-swept tip revenue from the shared Clique signer
+  // address, split 50/50 with the chain's creator (VampBridge.claimSwept)
+  // — see docs/ARCHITECTURE.md "Protocol fee revenue".
+}
+
 /// One row per vampchain, keyed by the registry's on-chain chainId.
 model Chain {
   id          Int    @id @default(autoincrement())
@@ -44,6 +51,24 @@ model Chain {
   status     ChainStatus @default(PENDING_PROVISION)
   flyAppName String?
   rpcUrl     String? // internal (Fly 6PN) RPC URL, e.g. http://<app>.internal:8545
+
+  /// Running EIP-1559 base-fee-burn accounting for this chain — see
+  /// docs/ARCHITECTURE.md "Protocol fee revenue" and VampBridge.claimBurnedFees.
+  /// `cumulativeBaseFeeBurnedNativeWei` is the exact running total of
+  /// `baseFeePerGas * gasUsed` summed over every block up to
+  /// `baseFeeScanBlock`, in native 18-decimal wei — kept as the precise
+  /// source of truth so scaling down to the base token's own raw decimal
+  /// units (`cumulativeBaseFeeBurned`, what the on-chain claim actually
+  /// uses) is always computed fresh from the full total, never compounded
+  /// tick over tick, which would otherwise let per-tick rounding dust add
+  /// up over time. `baseFeeAttestationSignature` is always a signature over
+  /// the *current* `cumulativeBaseFeeBurned`, refreshed whenever it changes
+  /// — infra/rpc-gateway serves it at `/fees/:chainId`.
+  cumulativeBaseFeeBurnedNativeWei String    @default("0")
+  cumulativeBaseFeeBurned          String    @default("0")
+  baseFeeScanBlock                 BigInt    @default(0)
+  baseFeeAttestedAt                DateTime?
+  baseFeeAttestationSignature      String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -114,6 +139,16 @@ model WithdrawalEvent {
   /// withdrawals (VampBridge.claimToken) — see docs/ARCHITECTURE.md
   /// "General ERC20 bridging".
   token String?
+
+  /// USER (default) means this row is a real withdrawal signed for
+  /// `claim`/`claimToken`. FEE_SWEEP means the burn came from the shared
+  /// Clique signer/etherbase address (swept tip revenue) and is signed for
+  /// `claimSwept` instead — see withdrawalWatcher.ts and
+  /// docs/ARCHITECTURE.md "Protocol fee revenue". `to` is meaningless for a
+  /// FEE_SWEEP row (claimSwept ignores it and splits 50/50 on-chain
+  /// instead); kept populated anyway since it's just whatever address the
+  /// sweep burn happened to come from.
+  kind WithdrawalKind @default(USER)
 
   signature String? // EIP-712 claim signature, set once the relayer has signed
 

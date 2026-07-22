@@ -18,6 +18,18 @@ export interface ClaimTokenMessage {
   sidechainTxHash: Hex;
 }
 
+export interface ClaimSweptMessage {
+  vampChainId: bigint;
+  amount: bigint;
+  sidechainTxHash: Hex;
+}
+
+export interface BurnedFeesMessage {
+  vampChainId: bigint;
+  cumulativeBurned: bigint;
+  asOfBlock: bigint;
+}
+
 /// Must match VampBridge.sol's domain and CLAIM_TYPEHASH exactly — see
 /// `_domainNameAndVersion()` and `CLAIM_TYPEHASH` there. No app-level
 /// verification of that match exists beyond the live claim() call itself
@@ -44,6 +56,29 @@ const CLAIM_TOKEN_TYPES = {
     { name: "to", type: "address" },
     { name: "amount", type: "uint256" },
     { name: "sidechainTxHash", type: "bytes32" },
+  ],
+} as const;
+
+/// Must match VampBridge.sol's CLAIM_SWEPT_TYPEHASH exactly. No `to` field —
+/// claimSwept() always splits 50/50 between the protocol treasury and the
+/// chain's creator, both read live from the registry, never caller-supplied.
+const CLAIM_SWEPT_TYPES = {
+  ClaimSwept: [
+    { name: "vampChainId", type: "uint256" },
+    { name: "amount", type: "uint256" },
+    { name: "sidechainTxHash", type: "bytes32" },
+  ],
+} as const;
+
+/// Must match VampBridge.sol's BURNED_FEES_TYPEHASH exactly. Attests to a
+/// *cumulative* total, not a discrete event — claimBurnedFees() only ever
+/// pays out the increment over what it's already paid, so resubmitting a
+/// stale attestation is a harmless no-op rather than a double-pay.
+const BURNED_FEES_TYPES = {
+  BurnedFees: [
+    { name: "vampChainId", type: "uint256" },
+    { name: "cumulativeBurned", type: "uint256" },
+    { name: "asOfBlock", type: "uint256" },
   ],
 } as const;
 
@@ -81,6 +116,42 @@ export async function signClaimToken(
     },
     types: CLAIM_TOKEN_TYPES,
     primaryType: "ClaimToken",
+    message: params.claim,
+  });
+}
+
+/// Same domain, distinct typehash — see CLAIM_SWEPT_TYPES above.
+export async function signClaimSwept(
+  account: SigningAccount,
+  params: { l1ChainId: number; bridgeAddress: Address; claim: ClaimSweptMessage }
+): Promise<Hex> {
+  return account.signTypedData({
+    domain: {
+      name: "VampBridge",
+      version: "1",
+      chainId: params.l1ChainId,
+      verifyingContract: params.bridgeAddress,
+    },
+    types: CLAIM_SWEPT_TYPES,
+    primaryType: "ClaimSwept",
+    message: params.claim,
+  });
+}
+
+/// Same domain, distinct typehash — see BURNED_FEES_TYPES above.
+export async function signBurnedFees(
+  account: SigningAccount,
+  params: { l1ChainId: number; bridgeAddress: Address; claim: BurnedFeesMessage }
+): Promise<Hex> {
+  return account.signTypedData({
+    domain: {
+      name: "VampBridge",
+      version: "1",
+      chainId: params.l1ChainId,
+      verifyingContract: params.bridgeAddress,
+    },
+    types: BURNED_FEES_TYPES,
+    primaryType: "BurnedFees",
     message: params.claim,
   });
 }

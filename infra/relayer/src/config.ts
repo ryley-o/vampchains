@@ -13,6 +13,20 @@ export interface RelayerConfig {
   pollIntervalMs: number;
   confirmations: number;
   burnAddress: Address;
+  /// The shared Clique signer/etherbase address baked into every
+  /// vampchain's genesis (`--miner.etherbase`, see
+  /// infra/sidechain-node/entrypoint.sh) — public info, not a secret, same
+  /// address across every vampchain by design. A burn *from* this address
+  /// is swept protocol fee revenue (feeSweep.ts), not a user withdrawal —
+  /// see withdrawalWatcher.ts and docs/ARCHITECTURE.md "Protocol fee
+  /// revenue". The relayer never holds this account's private key: sweeps
+  /// go out via `eth_sendTransaction` against the vampchain's own unlocked
+  /// keystore, over the chain's internal RPC.
+  cliqueSignerAddress: Address;
+  /// Below this native-wei balance, feeSweep.ts skips a chain rather than
+  /// submitting a sweep transaction whose own gas cost would eat most or
+  /// all of what it's sweeping. Default 0.01 native units (18-decimal).
+  feeSweepDustThresholdWei: bigint;
 }
 
 function requireEnv(name: string): string {
@@ -41,5 +55,7 @@ export function loadConfig(): RelayerConfig {
     // treasury account minting spends from, not a real dead address — see
     // "Withdrawal signal: recapture, not destroy" in docs/ARCHITECTURE.md.
     burnAddress: getAddress(process.env.BURN_ADDRESS ?? "0x12f5B89B02C8107278c5F24E74d7B44267C55d1f"),
+    cliqueSignerAddress: getAddress(requireEnv("CLIQUE_SIGNER_ADDRESS")),
+    feeSweepDustThresholdWei: BigInt(process.env.FEE_SWEEP_DUST_THRESHOLD_WEI ?? "10000000000000000"),
   };
 }

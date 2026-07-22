@@ -7,6 +7,8 @@ import { pollDeposits } from "./depositWatcher.js";
 import { pollWithdrawals } from "./withdrawalWatcher.js";
 import { pollGeneralDeposits } from "./generalDepositWatcher.js";
 import { pollGeneralWithdrawals } from "./generalWithdrawalWatcher.js";
+import { trackBurnedFees } from "./baseFeeWatcher.js";
+import { sweepTips } from "./feeSweep.js";
 
 type SigningAccount = ReturnType<typeof privateKeyToAccount>;
 
@@ -42,7 +44,19 @@ async function tick(
 
   for (const chain of activeChains) {
     try {
-      await pollWithdrawals(chain, signingAccount, cfg.l1ChainId, cfg.bridgeAddress, cfg.burnAddress);
+      await sweepTips(chain, cfg.cliqueSignerAddress, cfg.burnAddress, cfg.feeSweepDustThresholdWei);
+    } catch (err) {
+      console.error(`[fee-sweep] failed for chain ${chain.chainId}:`, err);
+    }
+    try {
+      await pollWithdrawals(
+        chain,
+        signingAccount,
+        cfg.l1ChainId,
+        cfg.bridgeAddress,
+        cfg.burnAddress,
+        cfg.cliqueSignerAddress
+      );
     } catch (err) {
       console.error(`[withdrawals] poll failed for chain ${chain.chainId}:`, err);
     }
@@ -50,6 +64,11 @@ async function tick(
       await pollGeneralWithdrawals(chain, signingAccount, cfg.l1ChainId, cfg.bridgeAddress, cfg.burnAddress);
     } catch (err) {
       console.error(`[general-withdrawals] poll failed for chain ${chain.chainId}:`, err);
+    }
+    try {
+      await trackBurnedFees(chain, signingAccount, cfg.l1ChainId, cfg.bridgeAddress);
+    } catch (err) {
+      console.error(`[base-fee] tracking failed for chain ${chain.chainId}:`, err);
     }
   }
 }

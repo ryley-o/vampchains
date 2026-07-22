@@ -21,13 +21,13 @@ set -eu
 #                            burns get recaptured to. Same default reused
 #                            across every vampchain.
 # PORT                      default 8545
-# CLIQUE_PERIOD              seconds between blocks, default 3
+# CLIQUE_PERIOD              seconds between blocks, default 12
 # STATE_DIR                  default /data — must be a persisted volume
 
 : "${CHAIN_ID:?CHAIN_ID env var is required}"
 : "${CLIQUE_SIGNER_PRIVATE_KEY:?CLIQUE_SIGNER_PRIVATE_KEY env var is required}"
 PORT="${PORT:-8545}"
-CLIQUE_PERIOD="${CLIQUE_PERIOD:-3}"
+CLIQUE_PERIOD="${CLIQUE_PERIOD:-12}"
 STATE_DIR="${STATE_DIR:-/data}"
 TREASURY_ADDRESS="${TREASURY_ADDRESS:-0x12f5B89B02C8107278c5F24E74d7B44267C55d1f}"
 

@@ -3,7 +3,8 @@ import { createPublicClient, getAddress, http } from "viem";
 import type { privateKeyToAccount } from "viem/accounts";
 import type { Chain as ChainRow } from "@vampchains/db";
 import { prisma } from "@vampchains/db";
-import { signClaim } from "./eip712.js";
+import { signClaim, signClaimSwept } from "./eip712.js";
+import { scaleFromNativeUnits } from "./units.js";
 
 type SigningAccount = ReturnType<typeof privateKeyToAccount>;
 
@@ -13,6 +14,15 @@ type SigningAccount = ReturnType<typeof privateKeyToAccount>;
 /// an EIP-712 claim the recipient can submit to VampBridge.claim()
 /// themselves. No L1 transaction, no gas spent by us — see docs/ARCHITECTURE.md
 /// for why this replaced the original push-based `release()` design.
+///
+/// A burn *from* the chain's own shared Clique signer/etherbase address
+/// (`cliqueSignerAddress`) is treated as swept protocol fee revenue, not a
+/// user withdrawal — see feeSweep.ts, which is what actually produces these
+/// burns (an admin-triggered `eth_sendTransaction` against the vampchain's
+/// own unlocked signer account). Those get a `ClaimSwept` attestation
+/// instead of a plain `Claim`, split 50/50 between the protocol treasury
+/// and the chain's creator on-chain — see docs/ARCHITECTURE.md "Protocol
+/// fee revenue".
 ///
 /// Runs even against a chain the registry has since marked inactive —
 /// claim() intentionally doesn't check chain-active status, see
@@ -28,7 +38,8 @@ export async function pollWithdrawals(
   signingAccount: SigningAccount,
   l1ChainId: number,
   bridgeAddress: Address,
-  burnAddress: Address
+  burnAddress: Address,
+  cliqueSignerAddress: Address
 ) {
   if (!chain.rpcUrl) return;
   const sideClient = createPublicClient({ transport: http(chain.rpcUrl) });
@@ -49,7 +60,18 @@ export async function pollWithdrawals(
     for (const tx of block.transactions) {
       if (typeof tx === "string") continue; // shouldn't happen with includeTransactions: true
       if (tx.to && getAddress(tx.to) === burnAddress && tx.value > 0n) {
-        await handleBurn(chain, tx.hash, tx.from, tx.value, blockNumber, signingAccount, l1ChainId, bridgeAddress);
+        const isFeeSweep = getAddress(tx.from) === cliqueSignerAddress;
+        await handleBurn(
+          chain,
+          tx.hash,
+          tx.from,
+          tx.value,
+          blockNumber,
+          isFeeSweep,
+          signingAccount,
+          l1ChainId,
+          bridgeAddress
+        );
       }
     }
   }
@@ -60,9 +82,10 @@ export async function pollWithdrawals(
 async function handleBurn(
   chain: ChainRow,
   sidechainTxHash: `0x${string}`,
-  to: Address,
+  from: Address,
   nativeAmount: bigint,
   sidechainBlock: bigint,
+  isFeeSweep: boolean,
   signingAccount: SigningAccount,
   l1ChainId: number,
   bridgeAddress: Address
@@ -78,11 +101,17 @@ async function handleBurn(
     return;
   }
 
-  const signature = await signClaim(signingAccount, {
-    l1ChainId,
-    bridgeAddress,
-    claim: { vampChainId: chain.chainId, to, amount, sidechainTxHash },
-  });
+  const signature = isFeeSweep
+    ? await signClaimSwept(signingAccount, {
+        l1ChainId,
+        bridgeAddress,
+        claim: { vampChainId: chain.chainId, amount, sidechainTxHash },
+      })
+    : await signClaim(signingAccount, {
+        l1ChainId,
+        bridgeAddress,
+        claim: { vampChainId: chain.chainId, to: from, amount, sidechainTxHash },
+      });
 
   await prisma.withdrawalEvent.upsert({
     where: { sidechainTxHash },
@@ -92,26 +121,14 @@ async function handleBurn(
       chainId: chain.chainId,
       sidechainTxHash,
       sidechainBlock,
-      to,
+      to: from,
       amount: amount.toString(),
+      kind: isFeeSweep ? "FEE_SWEEP" : "USER",
       signature,
     },
   });
 
   console.log(
-    `[withdrawals] signed claim for ${amount} raw units to ${to} on chain ${chain.chainId} (sidechain tx ${sidechainTxHash})`
+    `[withdrawals] signed ${isFeeSweep ? "swept-fee" : "user"} claim for ${amount} raw units (from ${from}) on chain ${chain.chainId} (sidechain tx ${sidechainTxHash})`
   );
-}
-
-/// Inverse of depositWatcher.ts's scaleToNativeUnits — native balances on a
-/// vampchain are always 18-decimal; convert back to the base token's own
-/// raw units for the L1 claim. Floors on precision loss: burning an amount
-/// that isn't an exact multiple of 10^(18-decimals) loses the remainder as
-/// unclaimable dust (documented, not silently wrong — see
-/// docs/ARCHITECTURE.md).
-function scaleFromNativeUnits(nativeAmount: bigint, tokenDecimals: number): bigint {
-  if (tokenDecimals > 18) {
-    throw new Error(`base token has ${tokenDecimals} decimals; only tokens with <= 18 decimals are supported`);
-  }
-  return nativeAmount / 10n ** BigInt(18 - tokenDecimals);
 }

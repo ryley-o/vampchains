@@ -5,6 +5,7 @@ import type { Chain as ChainRow } from "@vampchains/db";
 import { prisma } from "@vampchains/db";
 import { DEPOSITED_EVENT } from "./abi.js";
 import { getLogsChunked } from "./chunkedGetLogs.js";
+import { scaleToNativeUnits } from "./units.js";
 
 type SigningAccount = ReturnType<typeof privateKeyToAccount>;
 
@@ -100,21 +101,6 @@ async function handleDeposit(
   console.log(
     `[deposits] minted ${amount} raw units (${chain.baseTokenDecimals} decimals) as ${nativeAmount} native wei to ${recipient} on chain ${chainId} (tx ${txHash})`
   );
-}
-
-/// Native currency on every vampchain is always treated as 18-decimal, the
-/// same as ETH — that's what wallets/tooling assume for any EVM chain's
-/// native asset, regardless of what the underlying base token's own
-/// `decimals()` says. Most real ERC20s are NOT 18 decimals (USDC/USDT are
-/// 6), so a raw unit-for-unit mint would be off by orders of magnitude —
-/// e.g. depositing 100 USDC (100_000_000 raw units) would mint a balance
-/// that displays as 0.0000000000001 in any wallet instead of 100. Scale up
-/// to 18-decimal terms so the native balance always displays correctly.
-function scaleToNativeUnits(rawAmount: bigint, tokenDecimals: number): bigint {
-  if (tokenDecimals > 18) {
-    throw new Error(`base token has ${tokenDecimals} decimals; only tokens with <= 18 decimals are supported`);
-  }
-  return rawAmount * 10n ** BigInt(18 - tokenDecimals);
 }
 
 /// Sends `nativeAmount` from the treasury account to `recipient` — a real,
