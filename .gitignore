@@ -40,3 +40,5 @@ web/prisma/*.db
 *.log
 dist/
 build/
+.vercel
+.env*
