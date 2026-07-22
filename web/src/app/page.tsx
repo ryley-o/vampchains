@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@vampchains/db";
 import { getRemainingRuntime } from "@/lib/registryReads";
 import { shortAddress } from "@/lib/format";
-import { CONTRACTS_CONFIGURED, L1_CHAIN_ID } from "@/lib/contracts";
+import { CONTRACTS_CONFIGURED, HOME_CHAIN_WEB_CONFIGS } from "@/lib/contracts";
 import { StatusPill } from "@/components/StatusPill";
 import { TokenLogo } from "@/components/TokenLogo";
 import { CinematicIntro } from "@/components/brand/CinematicIntro";
@@ -36,7 +36,7 @@ export default async function HomePage() {
   const withRuntime = await Promise.all(
     chains.map(async (chain) => ({
       chain,
-      remainingRuntime: await getRemainingRuntime(chain.chainId),
+      remainingRuntime: await getRemainingRuntime(chain.homeChainId, chain.chainId),
     }))
   );
 
@@ -50,7 +50,7 @@ export default async function HomePage() {
         <div className="relative mx-auto max-w-6xl px-5 py-24 sm:py-32">
           <div className="flex items-center gap-2 font-mono text-xs uppercase tracking-[0.2em] text-blood">
             <Logo className="h-4 w-4" />
-            Base Sepolia · live
+            {HOME_CHAIN_WEB_CONFIGS.map((c) => c.name).join(" · ")} · live
           </div>
           <h1 className="text-display mt-5 max-w-3xl text-5xl text-bone sm:text-7xl">
             Pick a token.
@@ -81,8 +81,8 @@ export default async function HomePage() {
       {!CONTRACTS_CONFIGURED && (
         <div className="mx-auto max-w-6xl px-5 pt-8">
           <p className="rounded-lg border border-amber-800/60 bg-amber-950/30 px-4 py-3 text-sm text-amber-300">
-            Contracts aren&apos;t configured yet (<code>NEXT_PUBLIC_REGISTRY_ADDRESS</code> is
-            unset) — funding data won&apos;t load until env vars are set. See
+            No home chain is configured yet (e.g. <code>NEXT_PUBLIC_BASE_REGISTRY_ADDRESS</code>
+            is unset) — funding data won&apos;t load until at least one is set. See
             docs/DEPLOYMENT.md.
           </p>
         </div>
@@ -187,12 +187,12 @@ export default async function HomePage() {
               {withRuntime.map(({ chain, remainingRuntime }) => (
                 <Link
                   key={chain.id}
-                  href={`/chains/${chain.chainId}`}
+                  href={`/chains/${chain.evmChainId}`}
                   className="group relative overflow-hidden rounded-2xl border border-hairline bg-ink-raised p-5 transition-all hover:-translate-y-1 hover:border-blood/50 hover:shadow-[0_8px_40px_rgba(226,45,58,0.15)]"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-3">
-                      <TokenLogo address={chain.baseToken} chainId={L1_CHAIN_ID} size={36} />
+                      <TokenLogo address={chain.baseToken} chainId={chain.homeChainId} size={36} />
                       <div className="min-w-0">
                         <p className="truncate text-display text-lg text-bone">{chain.name}</p>
                         <p className="mt-0.5 font-mono text-xs uppercase tracking-wider text-blood">

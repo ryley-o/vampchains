@@ -19,8 +19,13 @@ export interface LocalDockerOptions {
   cliqueSignerPrivateKey: string;
 }
 
+/// `evmChainId`, not the registry-native `chainId` — the latter is only
+/// unique *within* a home chain now, so two vampchains from different home
+/// chains could otherwise collide on the same container name. Local-dev-only
+/// tooling (see docs/ARCHITECTURE.md), so unlike FlyProvisioner there's no
+/// existing-container migration concern to worry about here.
 function containerName(chain: ChainRow): string {
-  return `vampchain-${chain.chainId}`;
+  return `vampchain-${chain.evmChainId}`;
 }
 
 /// Drives `docker` directly (shelling out, not the Docker Engine API) — this

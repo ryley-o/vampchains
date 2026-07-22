@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { isAddress, zeroAddress } from "viem";
-import { useAccount, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
-import { BRIDGE_ABI, BRIDGE_ADDRESS } from "@/lib/contracts";
+import { useAccount, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { BRIDGE_ABI, requireHomeChainWebConfig } from "@/lib/contracts";
 import { formatTokenAmount, shortAddress } from "@/lib/format";
 
 interface Claim {
   chainId: string;
+  homeChainId: number;
   chainName: string;
   chainSymbol: string;
   token: string;
@@ -18,14 +19,17 @@ interface Claim {
 
 function ClaimRow({ claim, lookupAddress }: { claim: Claim; lookupAddress: `0x${string}` }) {
   const isNative = claim.token.toLowerCase() === zeroAddress;
+  const { switchChainAsync } = useSwitchChain();
   const { writeContract, data: hash, isPending, error } = useWriteContract();
   const { isLoading: confirming, isSuccess: confirmed } = useWaitForTransactionReceipt({ hash });
+  const homeChain = requireHomeChainWebConfig(claim.homeChainId);
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-hairline bg-ink-raised px-4 py-3">
       <div>
         <p className="text-sm text-bone">
-          {claim.chainName} <span className="font-mono text-bone-dim/50">(${claim.chainSymbol})</span>
+          {claim.chainName} <span className="font-mono text-bone-dim/50">(${claim.chainSymbol})</span>{" "}
+          <span className="text-bone-dim/40">· {homeChain.name}</span>
         </p>
         <p className="mt-0.5 font-mono text-xs text-bone-dim/50">
           {isNative ? formatTokenAmount(BigInt(claim.amount), 18) : `${claim.amount} raw units`}{" "}
@@ -39,14 +43,15 @@ function ClaimRow({ claim, lookupAddress }: { claim: Claim; lookupAddress: `0x${
       ) : (
         <button
           disabled={isPending || confirming}
-          onClick={() =>
+          onClick={async () => {
+            await switchChainAsync({ chainId: claim.homeChainId });
             writeContract({
-              address: BRIDGE_ADDRESS,
+              address: homeChain.bridgeAddress,
               abi: BRIDGE_ABI,
               functionName: "claimSnapshot",
               args: [BigInt(claim.chainId), claim.token as `0x${string}`, lookupAddress, BigInt(claim.amount), claim.proof],
-            })
-          }
+            });
+          }}
           className="rounded-lg bg-blood px-3 py-1.5 text-xs font-semibold text-bone transition-colors hover:bg-blood-bright disabled:opacity-40"
         >
           {isPending || confirming ? "Claiming…" : "Claim"}
@@ -116,7 +121,11 @@ export function ClaimLookup() {
             </p>
           ) : (
             claims.map((claim) => (
-              <ClaimRow key={`${claim.chainId}-${claim.token}`} claim={claim} lookupAddress={lookupAddress!} />
+              <ClaimRow
+                key={`${claim.homeChainId}-${claim.chainId}-${claim.token}`}
+                claim={claim}
+                lookupAddress={lookupAddress!}
+              />
             ))
           )}
         </div>

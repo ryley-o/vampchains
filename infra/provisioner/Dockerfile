@@ -6,6 +6,7 @@ FROM base AS deps
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/db/package.json packages/db/package.json
 COPY packages/db/prisma packages/db/prisma
+COPY packages/chains/package.json packages/chains/package.json
 COPY infra/provisioner/package.json infra/provisioner/package.json
 RUN pnpm install --frozen-lockfile --filter @vampchains/provisioner...
 
@@ -17,6 +18,7 @@ ENV NODE_ENV=production
 RUN apt-get update && apt-get install -y --no-install-recommends docker.io openssl && rm -rf /var/lib/apt/lists/*
 COPY --from=deps /app /app
 COPY packages/db packages/db
+COPY packages/chains packages/chains
 COPY infra/provisioner infra/provisioner
 WORKDIR /app/packages/db
 RUN pnpm exec prisma generate

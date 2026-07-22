@@ -42,9 +42,25 @@ enum WithdrawalKind {
 
 /// One row per vampchain, keyed by the registry's on-chain chainId.
 model Chain {
-  id          Int    @id @default(autoincrement())
-  chainId     BigInt @unique // VampChainRegistry chainId
-  evmChainId  BigInt @unique // this vampchain's own EVM chain id
+  id Int @id @default(autoincrement())
+
+  /// The home chain's own EVM chain id (matches `@vampchains/chains`'
+  /// `HOME_CHAINS[].id` — 84532 Base Sepolia, 11155111 Ethereum Sepolia,
+  /// 46630 Robinhood Chain Testnet) — i.e. which of our three
+  /// VampChainRegistry deployments this row's `chainId` was assigned by.
+  /// `chainId` is a bare incrementing counter *per registry*, so it is
+  /// only unique *within* a home chain, never globally — two vampchains on
+  /// different home chains can and will both be "chainId 1". Never used
+  /// on its own as a public routing/lookup key for exactly this reason —
+  /// see `evmChainId` below, which is what's globally unique instead.
+  homeChainId Int
+  chainId     BigInt // VampChainRegistry chainId — unique only within homeChainId, see above
+  /// This vampchain's own EVM chain id — globally unique (randomly
+  /// generated, see infra/provisioner/src/evmChainId.ts) regardless of
+  /// which home chain spawned it. The public identifier used in URLs and
+  /// gateway routes (`/chains/[evmChainId]`, `/rpc/:evmChainId`) instead
+  /// of the ambiguous bare `chainId` above.
+  evmChainId BigInt @unique
 
   baseToken         String
   baseTokenName     String
@@ -86,8 +102,10 @@ model Chain {
   wrappedTokens        WrappedToken[]
   snapshotEntitlements SnapshotEntitlement[]
 
+  @@unique([homeChainId, chainId])
   @@index([status])
   @@index([baseToken])
+  @@index([homeChainId])
 }
 
 /// L1 VampBridge.Deposited events, and whether the relayer has minted the

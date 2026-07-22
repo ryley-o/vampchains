@@ -1,0 +1,233 @@
+- generic [ref=f39e2]:
+  - region "Notifications alt+T"
+  - main [ref=f39e3]:
+    - generic [ref=f39e4]:
+      - link "Quicknode Faucet Home" [ref=f39e5] [cursor=pointer]:
+        - /url: /drip
+      - generic [ref=f39e9]:
+        - generic [ref=f39e10]:
+          - generic [ref=f39e11]: // Faucet
+          - heading "Robinhood Testnet Faucet" [level=1] [ref=f39e13]:
+            - text: Robinhood
+            - generic [ref=f39e14]: Testnet Faucet
+        - paragraph [ref=f39e15]: Quicknode got tired of having to scrounge for Testnet tokens, so we created this Multi-Chain Faucet for all of the networks we support.
+    - generic [ref=f39e64]:
+      - generic [ref=f39e65]:
+        - generic [ref=f39e67]:
+          - generic [ref=f39e68]: "1"
+          - generic [ref=f39e71]: Connect your wallet
+        - generic [ref=f39e75]:
+          - generic [ref=f39e76]: "2"
+          - generic [ref=f39e79]: Choose your amount
+        - generic [ref=f39e83]:
+          - generic [ref=f39e84]: "3"
+          - generic [ref=f39e87]: Receive your tokens
+      - generic [ref=f39e92]:
+        - generic [ref=f39e93]:
+          - heading "Drop in your wallet details" [level=2] [ref=f39e94]
+          - paragraph [ref=f39e95]: Connect your wallet! We support Coinbase Wallet, MetaMask, Uniswap Wallet, and Phantom wallet.
+        - generic [ref=f39e96]:
+          - generic [ref=f39e98]:
+            - generic [ref=f39e99]:
+              - generic [ref=f39e100]: Wallet Address
+              - generic [ref=f39e101]:
+                - button "Connect Wallet" [ref=f39e102] [cursor=pointer]
+                - textbox "0x..." [ref=f39e106]
+            - generic [ref=f39e107]:
+              - generic [ref=f39e108]: Select your chain and network
+              - generic [ref=f39e109]:
+                - combobox [ref=f39e112] [cursor=pointer]:
+                  - option "Chain..." [disabled]
+                  - option "Ethereum"
+                  - option "Polygon"
+                  - option "Binance Smart Chain"
+                  - option "Optimism"
+                  - option "Arbitrum"
+                  - option "Avalanche"
+                  - option "Solana"
+                  - option "Base"
+                  - option "Scroll"
+                  - option "Blast"
+                  - option "zkSync"
+                  - option "Berachain"
+                  - option "Xai"
+                  - option "Morph"
+                  - option "Cyber"
+                  - option "Mantle"
+                  - option "Story"
+                  - option "Monad"
+                  - option "Unichain"
+                  - option "Ink"
+                  - option "Adventure Layer"
+                  - option "Plasma"
+                  - option "Hyperliquid"
+                  - option "Sei"
+                  - option "Robinhood" [selected]
+                - combobox [ref=f39e115] [cursor=pointer]:
+                  - option "Network..." [disabled]
+                  - option "Testnet" [selected]
+          - button "Continue" [disabled] [ref=f39e117]
+  - generic [ref=f39e121]:
+    - generic [ref=f39e123]:
+      - generic [ref=f39e124]:
+        - generic [ref=f39e125]: // KEEP EXPLORING
+        - heading "Tutorials, docs and more" [level=2] [ref=f39e127]
+      - paragraph [ref=f39e128]: We do way more than provide a faucet! Explore our documentation and guides that help you build faster for almost any chain on your Web3 project.
+    - generic [ref=f39e129]:
+      - link "// GUIDE How to Create and Deploy an ERC20 Token (Smart Contract) This guide will bring you up to speed with ERC-20 tokens and show you how to create them. VIEW GUIDE" [ref=f39e130] [cursor=pointer]:
+        - /url: https://www.quicknode.com/guides/ethereum-development/smart-contracts/how-to-create-and-deploy-an-erc20-token
+        - generic [ref=f39e131]: // GUIDE
+        - generic [ref=f39e136]:
+          - generic [ref=f39e137]:
+            - heading "How to Create and Deploy an ERC20 Token (Smart Contract)" [level=3] [ref=f39e138]
+            - paragraph [ref=f39e139]: This guide will bring you up to speed with ERC-20 tokens and show you how to create them.
+          - generic [ref=f39e140]: VIEW GUIDE
+      - link "// GUIDE How to Create and Deploy an ERC-721 (NFT) This guide will show you how to create and deploy an ERC-721 token. VIEW GUIDE" [ref=f39e143] [cursor=pointer]:
+        - /url: https://www.quicknode.com/guides/ethereum-development/nfts/how-to-create-and-deploy-an-erc-721-nft
+        - generic [ref=f39e144]: // GUIDE
+        - generic [ref=f39e149]:
+          - generic [ref=f39e150]:
+            - heading "How to Create and Deploy an ERC-721 (NFT)" [level=3] [ref=f39e151]
+            - paragraph [ref=f39e152]: This guide will show you how to create and deploy an ERC-721 token.
+          - generic [ref=f39e153]: VIEW GUIDE
+      - link "// GUIDE How to Make a Flash Loan using Aave (DeFi) This guide will give you an overview of Aave as well as flash loans and walk you through how to create a flash loan smart contract in Solidity. VIEW GUIDE" [ref=f39e156] [cursor=pointer]:
+        - /url: https://www.quicknode.com/guides/defi/lending-protocols/how-to-make-a-flash-loan-using-aave
+        - generic [ref=f39e157]: // GUIDE
+        - generic [ref=f39e162]:
+          - generic [ref=f39e163]:
+            - heading "How to Make a Flash Loan using Aave (DeFi)" [level=3] [ref=f39e164]
+            - paragraph [ref=f39e165]: This guide will give you an overview of Aave as well as flash loans and walk you through how to create a flash loan smart contract in Solidity.
+          - generic [ref=f39e166]: VIEW GUIDE
+      - link "// GUIDE How to Create and Deploy a Smart Contract with Hardhat In this guide, we'll create a Hello World smart contract and deploy it using Hardhat via Quicknode. VIEW GUIDE" [ref=f39e169] [cursor=pointer]:
+        - /url: https://www.quicknode.com/guides/ethereum-development/smart-contracts/how-to-create-and-deploy-a-smart-contract-with-hardhat
+        - generic [ref=f39e170]: // GUIDE
+        - generic [ref=f39e175]:
+          - generic [ref=f39e176]:
+            - heading "How to Create and Deploy a Smart Contract with Hardhat" [level=3] [ref=f39e177]
+            - paragraph [ref=f39e178]: In this guide, we'll create a Hello World smart contract and deploy it using Hardhat via Quicknode.
+          - generic [ref=f39e179]: VIEW GUIDE
+  - generic [ref=f39e182]:
+    - generic [ref=f39e184]:
+      - generic [ref=f39e186]:
+        - generic [ref=f39e187]: // FAQ
+        - heading "Frequently Asked Questions" [level=2] [ref=f39e189]
+      - generic [ref=f39e193]:
+        - generic [ref=f39e194]:
+          - heading [level=3] [ref=f39e195]:
+            - button "How does this work?" [expanded] [ref=f39e196] [cursor=pointer]
+          - region "How does this work?" [ref=f39e199]:
+            - generic [ref=f39e201]:
+              - link "Quicknode" [ref=f39e202] [cursor=pointer]:
+                - /url: https://www.quicknode.com/?utm_source=faucet&utm_medium=site&utm_content=faq-answer
+              - text: operates reliable infrastructure for more than 80+ blockchains. We created a faucet to make the developer experience seamless by providing testnet tokens for as many chains as we could. Just tweet about this faucet, share the tweet and get a single token on your chosen testnet!
+        - generic [ref=f39e203]:
+          - heading [level=3] [ref=f39e204]:
+            - button "What is a faucet?" [expanded] [ref=f39e205] [cursor=pointer]
+          - region "What is a faucet?" [ref=f39e208]:
+            - generic [ref=f39e209]: A faucet is a blockchain tool that drips testnet tokens to anyone that requests them for free. You typically use these tokens for creating test transactions on the associated blockchain, such as contract deployments, transferring funds and debugging failed transactions.
+        - generic [ref=f39e210]:
+          - heading [level=3] [ref=f39e211]:
+            - button "Are there rate limits?" [expanded] [ref=f39e212] [cursor=pointer]
+          - region "Are there rate limits?" [ref=f39e215]:
+            - generic [ref=f39e216]: Yes, we provide one drip per network every 12 hours.
+        - generic [ref=f39e217]:
+          - heading [level=3] [ref=f39e218]:
+            - button "What if it doesn't work?" [expanded] [ref=f39e219] [cursor=pointer]
+          - region "What if it doesn't work?" [ref=f39e222]:
+            - generic [ref=f39e224]:
+              - text: Give us a shout on
+              - link "X / Twitter" [ref=f39e225] [cursor=pointer]:
+                - /url: https://x.com/quicknode
+              - text: or
+              - link "Discord" [ref=f39e226] [cursor=pointer]:
+                - /url: https://discord.gg/DkdgEqE
+              - text: "!"
+        - generic [ref=f39e227]:
+          - heading [level=3] [ref=f39e228]:
+            - button "What faucets do you have available?" [expanded] [ref=f39e229] [cursor=pointer]
+          - region "What faucets do you have available?" [ref=f39e232]:
+            - generic [ref=f39e234]:
+              - paragraph [ref=f39e235]: "We currently support the following faucets:"
+              - list [ref=f39e236]:
+                - listitem [ref=f39e237]:
+                  - link "Ethereum Faucet" [ref=f39e238] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/ethereum
+                - listitem [ref=f39e239]:
+                  - link "Solana Faucet" [ref=f39e240] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/solana
+                - listitem [ref=f39e241]:
+                  - link "Polygon Faucet" [ref=f39e242] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/polygon
+                - listitem [ref=f39e243]:
+                  - link "Binance Smart Chain Faucet" [ref=f39e244] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/binance-smart-chain
+                - listitem [ref=f39e245]:
+                  - link "Optimism Faucet" [ref=f39e246] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/optimism
+                - listitem [ref=f39e247]:
+                  - link "Arbitrum Faucet" [ref=f39e248] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/arbitrum
+                - listitem [ref=f39e249]:
+                  - link "Avalanche Faucet" [ref=f39e250] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/avalanche
+                - listitem [ref=f39e251]:
+                  - link "Base Faucet" [ref=f39e252] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/base
+                - listitem [ref=f39e253]:
+                  - link "Scroll Faucet" [ref=f39e254] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/scroll
+                - listitem [ref=f39e255]:
+                  - link "Blast Faucet" [ref=f39e256] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/blast
+                - listitem [ref=f39e257]:
+                  - link "zkSync Faucet" [ref=f39e258] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/zksync
+                - listitem [ref=f39e259]:
+                  - link "Berachain Faucet" [ref=f39e260] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/berachain
+                - listitem [ref=f39e261]:
+                  - link "XAI Faucet" [ref=f39e262] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/xai
+                - listitem [ref=f39e263]:
+                  - link "Morph Faucet" [ref=f39e264] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/morph
+                - listitem [ref=f39e265]:
+                  - link "Cyber Faucet" [ref=f39e266] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/cyber
+                - listitem [ref=f39e267]:
+                  - link "Mantle Faucet" [ref=f39e268] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/mantle
+                - listitem [ref=f39e269]:
+                  - link "Story Faucet" [ref=f39e270] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/story
+                - listitem [ref=f39e271]:
+                  - link "Unichain Faucet" [ref=f39e272] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/unichain
+                - listitem [ref=f39e273]:
+                  - link "Ink Faucet" [ref=f39e274] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/ink
+                - listitem [ref=f39e275]:
+                  - link "Monad Faucet" [ref=f39e276] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/monad
+                - listitem [ref=f39e277]:
+                  - link "Adventure Layer Faucet" [ref=f39e278] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/adventure-layer
+                - listitem [ref=f39e279]:
+                  - link "Diamondz Faucet" [ref=f39e280] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/diamondz
+                - listitem [ref=f39e281]:
+                  - link "Plasma Faucet" [ref=f39e282] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/Plasma
+                - listitem [ref=f39e283]:
+                  - link "Hyperliquid Faucet" [ref=f39e284] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/hyperliquid
+                - listitem [ref=f39e285]:
+                  - link "Sei Faucet" [ref=f39e286] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/sei
+                - listitem [ref=f39e287]:
+                  - link "Robinhood Faucet" [ref=f39e288] [cursor=pointer]:
+                    - /url: https://faucet.quicknode.com/robinhood
+    - contentinfo [ref=f39e289]:
+      - text: ©️ 2022 - 2026
+      - link "Quicknode." [ref=f39e290] [cursor=pointer]:
+        - /url: https://www.quicknode.com/?utm_source=faucet&utm_medium=site&utm_content=footer

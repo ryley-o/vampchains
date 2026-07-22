@@ -13,8 +13,22 @@ export interface FlyOptions {
   cliqueSignerPrivateKey: string;
 }
 
-function appName(chain: ChainRow): string {
-  return `vampchain-${chain.chainId}`;
+/// Only used to name a *brand-new* app at provision time — `evmChainId` is
+/// globally unique across every home chain (unlike the registry-native
+/// `chainId`, which now collides across home chains — see the Chain
+/// model's docstring), so it's the only field safe to derive a Fly app
+/// name from without risking two different vampchains fighting over the
+/// same app name. `backup`/`deprovision` deliberately do NOT recompute
+/// this — they use the row's already-stored `flyAppName` instead, so a
+/// chain provisioned before this naming scheme changed keeps resolving to
+/// its real, existing app rather than a freshly (and wrongly) computed one.
+function newAppName(chain: ChainRow): string {
+  return `vampchain-${chain.evmChainId}`;
+}
+
+function existingAppName(chain: ChainRow): string {
+  if (!chain.flyAppName) throw new Error(`chain ${chain.id} has no flyAppName recorded — was it ever provisioned?`);
+  return chain.flyAppName;
 }
 
 /// Provisions one Fly app + one Fly Machine per vampchain via the Fly
@@ -43,7 +57,7 @@ export class FlyProvisioner implements Provisioner {
   }
 
   async provision(chain: ChainRow): Promise<ProvisionResult> {
-    const name = appName(chain);
+    const name = newAppName(chain);
 
     await this.fly("/apps", {
       method: "POST",
@@ -100,7 +114,7 @@ export class FlyProvisioner implements Provisioner {
   /// if the snapshot call itself fails, since the volume is left in place
   /// either way (see `deprovision`).
   async backup(chain: ChainRow): Promise<void> {
-    const name = appName(chain);
+    const name = existingAppName(chain);
     try {
       const volumes = await this.fly<{ id: string; name: string }[]>(`/apps/${name}/volumes`);
       const volume = volumes.find((v) => v.name === "data");
@@ -116,7 +130,7 @@ export class FlyProvisioner implements Provisioner {
   }
 
   async deprovision(chain: ChainRow): Promise<void> {
-    const name = appName(chain);
+    const name = existingAppName(chain);
     // Deleting the app tears down its machine(s) too. Volumes are NOT
     // deleted by this call — same "keep it around as a forensic snapshot"
     // reasoning as LocalDockerProvisioner; clean up manually if needed.

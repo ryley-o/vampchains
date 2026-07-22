@@ -2,17 +2,22 @@
 
 import { useState } from "react";
 import { parseUnits } from "viem";
-import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
-import { REGISTRY_ABI, REGISTRY_ADDRESS, USDC_ADDRESS, USDC_DECIMALS } from "@/lib/contracts";
+import { useAccount, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { REGISTRY_ABI, requireHomeChainWebConfig } from "@/lib/contracts";
 import { ERC20_ABI } from "@/lib/erc20Abi";
 
-export function TopUpForm({ chainId }: { chainId: bigint }) {
+export function TopUpForm({ chainId, homeChainId }: { chainId: bigint; homeChainId: number }) {
   const { address, isConnected } = useAccount();
+  const { switchChainAsync } = useSwitchChain();
   const [amount, setAmount] = useState("");
+
+  const homeChain = requireHomeChainWebConfig(homeChainId);
+  const REGISTRY_ADDRESS = homeChain.registryAddress;
+  const USDC_ADDRESS = homeChain.usdcAddress;
 
   let parsedAmount: bigint | undefined;
   try {
-    parsedAmount = amount ? parseUnits(amount, USDC_DECIMALS) : undefined;
+    parsedAmount = amount ? parseUnits(amount, homeChain.usdcDecimals) : undefined;
   } catch {
     parsedAmount = undefined;
   }
@@ -22,6 +27,7 @@ export function TopUpForm({ chainId }: { chainId: bigint }) {
     abi: ERC20_ABI,
     functionName: "allowance",
     args: address ? [address, REGISTRY_ADDRESS] : undefined,
+    chainId: homeChainId,
     query: { enabled: !!address },
   });
 
@@ -54,10 +60,11 @@ export function TopUpForm({ chainId }: { chainId: bigint }) {
         ) : needsApproval ? (
           <button
             disabled={!parsedAmount || approving || approveConfirming}
-            onClick={() =>
-              parsedAmount &&
-              approve({ address: USDC_ADDRESS, abi: ERC20_ABI, functionName: "approve", args: [REGISTRY_ADDRESS, parsedAmount] })
-            }
+            onClick={async () => {
+              if (!parsedAmount) return;
+              await switchChainAsync({ chainId: homeChainId });
+              approve({ address: USDC_ADDRESS, abi: ERC20_ABI, functionName: "approve", args: [REGISTRY_ADDRESS, parsedAmount] });
+            }}
             className="rounded-xl bg-bone px-4 py-2 text-sm font-semibold text-ink transition-transform hover:scale-[1.03] disabled:opacity-40 disabled:hover:scale-100"
           >
             {approving || approveConfirming ? "Approving…" : "Approve"}
@@ -65,7 +72,11 @@ export function TopUpForm({ chainId }: { chainId: bigint }) {
         ) : (
           <button
             disabled={!parsedAmount || sending || confirming}
-            onClick={() => parsedAmount && topUp({ address: REGISTRY_ADDRESS, abi: REGISTRY_ABI, functionName: "topUp", args: [chainId, parsedAmount] })}
+            onClick={async () => {
+              if (!parsedAmount) return;
+              await switchChainAsync({ chainId: homeChainId });
+              topUp({ address: REGISTRY_ADDRESS, abi: REGISTRY_ABI, functionName: "topUp", args: [chainId, parsedAmount] });
+            }}
             className="rounded-xl bg-blood px-4 py-2 text-sm font-semibold text-bone transition-transform hover:scale-[1.03] hover:bg-blood-bright disabled:opacity-40 disabled:hover:scale-100"
           >
             {sending || confirming ? "Sending…" : "Top up"}

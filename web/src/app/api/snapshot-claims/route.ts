@@ -17,12 +17,13 @@ export async function GET(request: Request) {
 
   const rows = await prisma.snapshotEntitlement.findMany({
     where: { address: getAddress(address) },
-    include: { chain: { select: { chainId: true, name: true, symbol: true, baseTokenSymbol: true } } },
+    include: { chain: { select: { chainId: true, homeChainId: true, name: true, symbol: true, baseTokenSymbol: true } } },
     orderBy: { createdAt: "desc" },
   });
 
   const claims = rows.map((row) => ({
     chainId: row.chain.chainId.toString(),
+    homeChainId: row.chain.homeChainId,
     chainName: row.chain.name,
     chainSymbol: row.chain.symbol,
     token: row.token,

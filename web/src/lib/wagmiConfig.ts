@@ -1,6 +1,6 @@
 import { type CreateConnectorFn, createConfig, http, injected } from "wagmi";
 import { walletConnect } from "wagmi/connectors";
-import { l1Chain } from "./viemClients";
+import { HOME_VIEM_CHAINS } from "./viemClients";
 import { WALLETCONNECT_PROJECT_ID } from "./contracts";
 
 // Injected (MetaMask/Rabby/etc, desktop extensions and wallets' in-app
@@ -31,9 +31,7 @@ if (typeof window !== "undefined" && WALLETCONNECT_PROJECT_ID) {
 }
 
 export const wagmiConfig = createConfig({
-  chains: [l1Chain],
+  chains: HOME_VIEM_CHAINS,
   connectors,
-  transports: {
-    [l1Chain.id]: http(),
-  },
+  transports: Object.fromEntries(HOME_VIEM_CHAINS.map((chain) => [chain.id, http()])),
 });

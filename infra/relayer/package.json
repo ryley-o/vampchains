@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@vampchains/chains": "workspace:*",
     "@vampchains/db": "workspace:*",
     "viem": "^2.21.54"
   },

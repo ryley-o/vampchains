@@ -37,8 +37,13 @@ export async function provisionPendingChains(provisioner: Provisioner) {
 /// AWAITING_SNAPSHOT — the node stays up a little longer at this point
 /// (not torn down yet), just long enough for `buildAndPublishSnapshots`
 /// below to read its final balances before anything is destroyed.
-export async function detectGraceExpiredChains(l1Client: PublicClient, l1Wallet: L1WalletClient, registryAddress: Address) {
-  const active = await prisma.chain.findMany({ where: { status: "ACTIVE" } });
+export async function detectGraceExpiredChains(
+  l1Client: PublicClient,
+  l1Wallet: L1WalletClient,
+  homeChainId: number,
+  registryAddress: Address
+) {
+  const active = await prisma.chain.findMany({ where: { homeChainId, status: "ACTIVE" } });
 
   for (const chain of active) {
     const isActive = await l1Client.readContract({
@@ -77,12 +82,12 @@ export async function buildAndPublishSnapshots(
   l1Client: PublicClient,
   l1Wallet: L1WalletClient,
   signingAccount: SigningAccount,
-  l1ChainId: number,
+  homeChainId: number,
   bridgeAddress: Address,
   treasuryAddress: Address,
   cliqueSignerAddress: Address
 ) {
-  const awaiting = await prisma.chain.findMany({ where: { status: "AWAITING_SNAPSHOT" } });
+  const awaiting = await prisma.chain.findMany({ where: { homeChainId, status: "AWAITING_SNAPSHOT" } });
 
   for (const chain of awaiting) {
     try {
@@ -101,7 +106,7 @@ export async function buildAndPublishSnapshots(
         const { root, signature } = await buildAndSignSnapshot(
           chain,
           signingAccount,
-          l1ChainId,
+          homeChainId,
           bridgeAddress,
           treasuryAddress,
           cliqueSignerAddress
@@ -156,8 +161,13 @@ export async function teardownDeactivatingChains(provisioner: Provisioner) {
 /// the expected common case rather than a real error — this runs on every
 /// tick against every DEACTIVATED chain indefinitely, so it needs to be a
 /// harmless no-op far more often than not.
-export async function sweepExpiredSnapshots(l1Client: PublicClient, l1Wallet: L1WalletClient, bridgeAddress: Address) {
-  const deactivated = await prisma.chain.findMany({ where: { status: "DEACTIVATED" } });
+export async function sweepExpiredSnapshots(
+  l1Client: PublicClient,
+  l1Wallet: L1WalletClient,
+  homeChainId: number,
+  bridgeAddress: Address
+) {
+  const deactivated = await prisma.chain.findMany({ where: { homeChainId, status: "DEACTIVATED" } });
 
   for (const chain of deactivated) {
     const publishedAt = await l1Client.readContract({

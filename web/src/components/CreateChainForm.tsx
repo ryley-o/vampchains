@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { type Address, isAddress } from "viem";
-import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
-import { REGISTRY_ABI, REGISTRY_ADDRESS, USDC_ADDRESS, CONTRACTS_CONFIGURED, L1_CHAIN_ID } from "@/lib/contracts";
+import { useAccount, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { REGISTRY_ABI, HOME_CHAIN_WEB_CONFIGS, CONTRACTS_CONFIGURED } from "@/lib/contracts";
 import { ERC20_ABI } from "@/lib/erc20Abi";
 import { formatUsdc } from "@/lib/format";
 import { TokenLogo } from "@/components/TokenLogo";
@@ -17,6 +17,14 @@ const MAX_SYMBOL_LEN = 16;
 
 export function CreateChainForm() {
   const { address, isConnected } = useAccount();
+  const { switchChainAsync } = useSwitchChain();
+
+  const [homeChainId, setHomeChainId] = useState(
+    HOME_CHAIN_WEB_CONFIGS.find((c) => c.configured)?.homeChainId ?? HOME_CHAIN_WEB_CONFIGS[0].homeChainId
+  );
+  const homeChain = HOME_CHAIN_WEB_CONFIGS.find((c) => c.homeChainId === homeChainId) ?? HOME_CHAIN_WEB_CONFIGS[0];
+  const REGISTRY_ADDRESS = homeChain.registryAddress;
+  const USDC_ADDRESS = homeChain.usdcAddress;
 
   const [tokenAddress, setTokenAddress] = useState("");
   const [agreed, setAgreed] = useState(false);
@@ -27,18 +35,21 @@ export function CreateChainForm() {
     address: validToken,
     abi: ERC20_ABI,
     functionName: "name",
+    chainId: homeChainId,
     query: { enabled: !!validToken },
   });
   const { data: tokenSymbol, isError: tokenSymbolError } = useReadContract({
     address: validToken,
     abi: ERC20_ABI,
     functionName: "symbol",
+    chainId: homeChainId,
     query: { enabled: !!validToken },
   });
   const { data: tokenDecimals, isError: tokenDecimalsError } = useReadContract({
     address: validToken,
     abi: ERC20_ABI,
     functionName: "decimals",
+    chainId: homeChainId,
     query: { enabled: !!validToken },
   });
 
@@ -51,7 +62,8 @@ export function CreateChainForm() {
     address: REGISTRY_ADDRESS,
     abi: REGISTRY_ABI,
     functionName: "defaultAnnualFeeUSDC",
-    query: { enabled: CONTRACTS_CONFIGURED },
+    chainId: homeChainId,
+    query: { enabled: homeChain.configured },
   });
 
   const { data: activeChainForToken } = useReadContract({
@@ -59,7 +71,8 @@ export function CreateChainForm() {
     abi: REGISTRY_ABI,
     functionName: "activeChainByToken",
     args: validToken ? [validToken] : undefined,
-    query: { enabled: !!validToken && CONTRACTS_CONFIGURED },
+    chainId: homeChainId,
+    query: { enabled: !!validToken && homeChain.configured },
   });
 
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
@@ -67,7 +80,8 @@ export function CreateChainForm() {
     abi: ERC20_ABI,
     functionName: "allowance",
     args: address ? [address, REGISTRY_ADDRESS] : undefined,
-    query: { enabled: !!address && CONTRACTS_CONFIGURED },
+    chainId: homeChainId,
+    query: { enabled: !!address && homeChain.configured },
   });
 
   const fee = (annualFee as bigint | undefined) ?? 0n;
@@ -90,7 +104,7 @@ export function CreateChainForm() {
 
   const canSubmit = useMemo(
     () =>
-      CONTRACTS_CONFIGURED &&
+      homeChain.configured &&
       isConnected &&
       !!validToken &&
       !tokenDecimalsError &&
@@ -99,7 +113,7 @@ export function CreateChainForm() {
       !!derivedSymbol &&
       !tokenAlreadyUsed &&
       agreed,
-    [isConnected, validToken, tokenDecimalsError, metadataUnreadable, derivedName, derivedSymbol, tokenAlreadyUsed, agreed]
+    [homeChain.configured, isConnected, validToken, tokenDecimalsError, metadataUnreadable, derivedName, derivedSymbol, tokenAlreadyUsed, agreed]
   );
 
   if (!CONTRACTS_CONFIGURED) {
@@ -114,7 +128,35 @@ export function CreateChainForm() {
     <div className="space-y-7">
       <div>
         <label className="block text-xs font-semibold uppercase tracking-wider text-bone-dim/60">
-          Existing ERC20 token address
+          Home chain
+        </label>
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {HOME_CHAIN_WEB_CONFIGS.map((c) => (
+            <button
+              key={c.homeChainId}
+              type="button"
+              disabled={!c.configured}
+              onClick={() => setHomeChainId(c.homeChainId)}
+              className={`rounded-xl border px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                homeChainId === c.homeChainId
+                  ? "border-blood/60 bg-blood/10 text-bone"
+                  : "border-hairline bg-ink-raised text-bone-dim/70 hover:border-hairline-strong"
+              }`}
+            >
+              <span className="font-medium">{c.name}</span>
+              {!c.configured && <span className="block text-xs text-bone-dim/40">coming soon</span>}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-xs text-bone-dim/50">
+          Your token must already exist on this chain — this is where the annual fee gets paid and
+          where you&apos;ll bridge {derivedSymbol ?? "it"} in from.
+        </p>
+      </div>
+
+      <div>
+        <label className="block text-xs font-semibold uppercase tracking-wider text-bone-dim/60">
+          Existing ERC20 token address (on {homeChain.name})
         </label>
         <input
           value={tokenAddress}
@@ -125,7 +167,8 @@ export function CreateChainForm() {
         {tokenAddress && !validToken && <p className="mt-1.5 text-xs text-blood-bright">Not a valid address.</p>}
         {validToken && tokenDecimalsError && (
           <p className="mt-1.5 text-xs text-blood-bright">
-            Couldn&apos;t read decimals() from this address — is it really an ERC20?
+            Couldn&apos;t read decimals() from this address on {homeChain.name} — is it really an
+            ERC20 deployed there?
           </p>
         )}
         {validToken && !tokenDecimalsError && metadataUnreadable && (
@@ -139,7 +182,7 @@ export function CreateChainForm() {
         )}
         {validToken && derivedName && derivedSymbol && tokenDecimals !== undefined && !tokenDecimalsError && (
           <div className="mt-3 flex items-center gap-3 rounded-xl border border-hairline bg-charcoal-soft/50 p-3">
-            <TokenLogo address={validToken} chainId={L1_CHAIN_ID} size={36} />
+            <TokenLogo address={validToken} chainId={homeChainId} size={36} />
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-bone">
                 {derivedName} <span className="text-bone-dim/60">(${derivedSymbol})</span>
@@ -188,14 +231,15 @@ export function CreateChainForm() {
       ) : needsApproval ? (
         <button
           disabled={!canSubmit || approving || approveConfirming}
-          onClick={() =>
+          onClick={async () => {
+            await switchChainAsync({ chainId: homeChainId });
             approve({
               address: USDC_ADDRESS,
               abi: ERC20_ABI,
               functionName: "approve",
               args: [REGISTRY_ADDRESS, fee],
-            })
-          }
+            });
+          }}
           className="w-full rounded-full bg-bone px-6 py-3.5 text-sm font-semibold uppercase tracking-wider text-ink transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100 sm:w-auto"
         >
           {approving || approveConfirming ? "Approving USDC…" : `Approve ${formatUsdc(fee)} USDC`}
@@ -203,17 +247,16 @@ export function CreateChainForm() {
       ) : (
         <button
           disabled={!canSubmit || creating || createConfirming}
-          onClick={() =>
-            validToken &&
-            derivedName &&
-            derivedSymbol &&
+          onClick={async () => {
+            if (!validToken || !derivedName || !derivedSymbol) return;
+            await switchChainAsync({ chainId: homeChainId });
             createChain({
               address: REGISTRY_ADDRESS,
               abi: REGISTRY_ABI,
               functionName: "createChain",
               args: [validToken, derivedName, derivedSymbol],
-            })
-          }
+            });
+          }}
           className="w-full rounded-full bg-blood px-6 py-3.5 text-sm font-semibold uppercase tracking-wider text-bone shadow-[0_0_40px_rgba(226,45,58,0.3)] transition-transform hover:scale-[1.02] hover:bg-blood-bright disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100 sm:w-auto"
         >
           {creating || createConfirming ? "Creating chain…" : "Pay & create vampchain"}

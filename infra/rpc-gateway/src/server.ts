@@ -119,8 +119,10 @@ export function createGatewayServer(config: GatewayConfig) {
         return;
       }
 
-      const chainId = BigInt(feesMatch[1]!);
-      const chain = await prisma.chain.findUnique({ where: { chainId } });
+      // Routing key is evmChainId, not the registry-native chainId — the
+      // latter is only unique within a home chain, see Chain model docstring.
+      const evmChainId = BigInt(feesMatch[1]!);
+      const chain = await prisma.chain.findUnique({ where: { evmChainId } });
 
       if (!chain || !chain.baseFeeAttestationSignature || !chain.baseFeeAttestedAt) {
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -132,7 +134,7 @@ export function createGatewayServer(config: GatewayConfig) {
       res.end(
         JSON.stringify({
           status: "ready",
-          chainId: chain.chainId.toString(),
+          evmChainId: chain.evmChainId.toString(),
           // The cumulative EIP-1559 base-fee burn attested as of
           // `asOfBlock`, in the base token's own raw decimal units — submit
           // together with `signature` to VampBridge.claimBurnedFees(), which
@@ -154,7 +156,9 @@ export function createGatewayServer(config: GatewayConfig) {
       return;
     }
 
-    const chainId = BigInt(match[1]!);
+    // Routing key is evmChainId, not the registry-native chainId — see the
+    // /fees route above and the Chain model's docstring for why.
+    const evmChainId = BigInt(match[1]!);
 
     if (!limiter.tryConsume(clientIp(req))) {
       res.writeHead(429, { "Content-Type": "application/json" });
@@ -179,10 +183,10 @@ export function createGatewayServer(config: GatewayConfig) {
       return;
     }
 
-    const chain = await prisma.chain.findUnique({ where: { chainId } });
+    const chain = await prisma.chain.findUnique({ where: { evmChainId } });
     if (!chain || chain.status !== "ACTIVE" || !chain.rpcUrl) {
       res.writeHead(404, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(rpcError(null, INVALID_REQUEST_CODE, `chain ${chainId} is not active`)));
+      res.end(JSON.stringify(rpcError(null, INVALID_REQUEST_CODE, `chain ${evmChainId} is not active`)));
       return;
     }
 
@@ -196,7 +200,7 @@ export function createGatewayServer(config: GatewayConfig) {
       res.writeHead(upstream.status, { "Content-Type": "application/json" });
       res.end(text);
     } catch (err) {
-      console.error(`[gateway] upstream request to chain ${chainId} failed:`, err);
+      console.error(`[gateway] upstream request to chain ${evmChainId} failed:`, err);
       res.writeHead(502, { "Content-Type": "application/json" });
       res.end(JSON.stringify(rpcError(null, INTERNAL_ERROR_CODE, "upstream node unreachable")));
     }

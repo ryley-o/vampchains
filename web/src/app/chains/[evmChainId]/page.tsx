@@ -4,7 +4,7 @@ import { prisma } from "@vampchains/db";
 import { getOnchainChain, getRemainingRuntime } from "@/lib/registryReads";
 import { getBurnedFeesClaimed } from "@/lib/bridgeReads";
 import { formatTokenAmount, formatUsdc, shortAddress } from "@/lib/format";
-import { GATEWAY_URL, CONTRACTS_CONFIGURED, L1_CHAIN_ID } from "@/lib/contracts";
+import { GATEWAY_URL, getHomeChainWebConfig } from "@/lib/contracts";
 import { StatusPill } from "@/components/StatusPill";
 import { TokenLogo } from "@/components/TokenLogo";
 import { BridgeForm } from "@/components/BridgeForm";
@@ -68,24 +68,28 @@ function Panel({ title, eyebrow, children }: { title: string; eyebrow: string; c
   );
 }
 
-export default async function ChainDetailPage({ params }: { params: Promise<{ chainId: string }> }) {
-  const { chainId: chainIdParam } = await params;
+export default async function ChainDetailPage({ params }: { params: Promise<{ evmChainId: string }> }) {
+  const { evmChainId: evmChainIdParam } = await params;
 
-  let chainId: bigint;
+  let evmChainId: bigint;
   try {
-    chainId = BigInt(chainIdParam);
+    evmChainId = BigInt(evmChainIdParam);
   } catch {
     notFound();
   }
 
-  const dbChain = await prisma.chain.findUnique({ where: { chainId } });
+  const dbChain = await prisma.chain.findUnique({ where: { evmChainId } });
   if (!dbChain) notFound();
 
+  const { chainId, homeChainId } = dbChain;
+  const homeConfig = getHomeChainWebConfig(homeChainId);
+  const contractsConfigured = !!homeConfig?.configured;
+
   const [onchain, remainingRuntime, wrappedTokenRows, burnedFeesClaimed] = await Promise.all([
-    getOnchainChain(chainId),
-    getRemainingRuntime(chainId),
+    getOnchainChain(homeChainId, chainId),
+    getRemainingRuntime(homeChainId, chainId),
     prisma.wrappedToken.findMany({ where: { chainDbId: dbChain.id }, orderBy: { createdAt: "asc" } }),
-    getBurnedFeesClaimed(chainId),
+    getBurnedFeesClaimed(homeChainId, chainId),
   ]);
 
   const wrappedTokens = wrappedTokenRows.map((w) => ({
@@ -96,7 +100,7 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
     decimals: w.decimals,
   }));
 
-  const gatewayRpcUrl = `${GATEWAY_URL}/rpc/${chainId}`;
+  const gatewayRpcUrl = `${GATEWAY_URL}/rpc/${dbChain.evmChainId}`;
   const isActive = dbChain.status === "ACTIVE" && !!dbChain.rpcUrl;
   // remainingRuntime hits 0 the instant paid-up funding depletes, but
   // isActive() stays true throughout the week-long grace period that
@@ -108,10 +112,10 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
     <div className="mx-auto max-w-4xl space-y-6 px-5 py-14 sm:py-16">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-4">
-          <TokenLogo address={dbChain.baseToken} chainId={L1_CHAIN_ID} size={48} className="mt-1" />
+          <TokenLogo address={dbChain.baseToken} chainId={homeChainId} size={48} className="mt-1" />
           <div>
             <p className="font-mono text-xs uppercase tracking-[0.2em] text-blood">
-              Vampchain #{dbChain.evmChainId.toString()}
+              Vampchain #{dbChain.evmChainId.toString()} · from {homeConfig?.name ?? `chain ${homeChainId}`}
             </p>
             <h1 className="text-display mt-1.5 text-4xl text-bone sm:text-5xl">{dbChain.name}</h1>
             <p className="mt-3 text-sm text-bone-dim/60">
@@ -134,7 +138,7 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
       </div>
 
       <Panel title="Funding" eyebrow="Runway">
-        {!CONTRACTS_CONFIGURED || !onchain ? (
+        {!contractsConfigured || !onchain ? (
           <p className="text-sm text-bone-dim/50">Live funding data unavailable right now.</p>
         ) : (
           <>
@@ -155,13 +159,13 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
               </div>
             </div>
             <div className="mt-6 border-t border-hairline pt-6">
-              <TopUpForm chainId={chainId} />
+              <TopUpForm chainId={chainId} homeChainId={homeChainId} />
             </div>
           </>
         )}
       </Panel>
 
-      {CONTRACTS_CONFIGURED && onchain && (
+      {contractsConfigured && onchain && (
         <Panel title="Creator earnings" eyebrow="50/50 split">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
@@ -207,6 +211,7 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
         <Panel title="Bridge" eyebrow="In / out">
           <BridgeForm
             chainId={chainId}
+            homeChainId={homeChainId}
             baseToken={dbChain.baseToken as `0x${string}`}
             baseTokenSymbol={dbChain.baseTokenSymbol}
             baseTokenDecimals={dbChain.baseTokenDecimals}
@@ -220,6 +225,7 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ch
         <Panel title="Bridge other tokens" eyebrow="General bridging">
           <GeneralBridgeForm
             chainId={chainId}
+            homeChainId={homeChainId}
             baseTokenSymbol={dbChain.baseTokenSymbol}
             evmChainId={dbChain.evmChainId}
             gatewayRpcUrl={gatewayRpcUrl}

@@ -1,6 +1,6 @@
 import "server-only";
-import { l1PublicClient } from "./viemClients";
-import { BRIDGE_ABI, BRIDGE_ADDRESS, CONTRACTS_CONFIGURED } from "./contracts";
+import { getHomePublicClient } from "./viemClients";
+import { BRIDGE_ABI, getHomeChainWebConfig } from "./contracts";
 
 /// Cumulative base-fee revenue this chain has already recaptured and split
 /// 50/50 between its creator and the protocol treasury (see
@@ -9,12 +9,14 @@ import { BRIDGE_ABI, BRIDGE_ADDRESS, CONTRACTS_CONFIGURED } from "./contracts";
 /// `formatTokenAmount(amount, baseTokenDecimals)`. This is a live, honest
 /// floor on what a chain has actually earned so far — it doesn't include
 /// swept tip revenue that hasn't been indexed back here yet, so the real
-/// total paid out to a creator is always at least this much.
-export async function getBurnedFeesClaimed(chainId: bigint): Promise<bigint> {
-  if (!CONTRACTS_CONFIGURED) return 0n;
+/// total paid out to a creator is always at least this much. `homeChainId`
+/// picks which home chain's VampBridge to read from.
+export async function getBurnedFeesClaimed(homeChainId: number, chainId: bigint): Promise<bigint> {
+  const cfg = getHomeChainWebConfig(homeChainId);
+  if (!cfg || !cfg.configured) return 0n;
   try {
-    return (await l1PublicClient.readContract({
-      address: BRIDGE_ADDRESS,
+    return (await getHomePublicClient(homeChainId).readContract({
+      address: cfg.bridgeAddress,
       abi: BRIDGE_ABI,
       functionName: "burnedFeesClaimed",
       args: [chainId],

@@ -10,6 +10,9 @@ importers:
 
   infra/provisioner:
     dependencies:
+      '@vampchains/chains':
+        specifier: workspace:*
+        version: link:../../packages/chains
       '@vampchains/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -29,6 +32,9 @@ importers:
 
   infra/relayer:
     dependencies:
+      '@vampchains/chains':
+        specifier: workspace:*
+        version: link:../../packages/chains
       '@vampchains/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -48,6 +54,9 @@ importers:
 
   infra/rpc-gateway:
     dependencies:
+      '@vampchains/chains':
+        specifier: workspace:*
+        version: link:../../packages/chains
       '@vampchains/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -58,6 +67,12 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.23.1
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/chains:
+    devDependencies:
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -83,6 +98,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.62.11
         version: 5.101.2(react@19.2.4)
+      '@vampchains/chains':
+        specifier: workspace:*
+        version: link:../packages/chains
       '@vampchains/db':
         specifier: workspace:*
         version: link:../packages/db

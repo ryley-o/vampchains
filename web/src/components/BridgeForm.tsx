@@ -3,13 +3,14 @@
 import { useEffect, useState } from "react";
 import { type Address, type Hex, createWalletClient, custom, isAddress, parseEther, parseUnits } from "viem";
 import { useAccount, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
-import { BRIDGE_ADDRESS, BRIDGE_ABI, BURN_ADDRESS, GATEWAY_URL, L1_CHAIN_ID } from "@/lib/contracts";
+import { BRIDGE_ABI, BURN_ADDRESS, GATEWAY_URL, requireHomeChainWebConfig } from "@/lib/contracts";
 import { ERC20_ABI } from "@/lib/erc20Abi";
 import { makeVampchainChain } from "@/lib/viemClients";
 import { AddToWalletButton } from "@/components/AddToWalletButton";
 
 interface BridgeFormProps {
   chainId: bigint;
+  homeChainId: number;
   baseToken: Address;
   baseTokenSymbol: string;
   baseTokenDecimals: number;
@@ -32,6 +33,7 @@ function getEthereumProvider() {
 
 export function BridgeForm({
   chainId,
+  homeChainId,
   baseToken,
   baseTokenSymbol,
   baseTokenDecimals,
@@ -43,6 +45,9 @@ export function BridgeForm({
   const [amount, setAmount] = useState("");
   const [recipient, setRecipient] = useState("");
 
+  const homeChain = requireHomeChainWebConfig(homeChainId);
+  const BRIDGE_ADDRESS = homeChain.bridgeAddress;
+
   const effectiveRecipient = isAddress(recipient) ? (recipient as Address) : address;
 
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
@@ -50,6 +55,7 @@ export function BridgeForm({
     abi: ERC20_ABI,
     functionName: "allowance",
     args: address ? [address, BRIDGE_ADDRESS] : undefined,
+    chainId: homeChainId,
     query: { enabled: !!address },
   });
 
@@ -132,7 +138,7 @@ export function BridgeForm({
         await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: `0x${evmChainId.toString(16)}` }] });
       }
 
-      const vampchain = makeVampchainChain(evmChainId, baseTokenSymbol, chainId);
+      const vampchain = makeVampchainChain(evmChainId, baseTokenSymbol);
       const walletClient = createWalletClient({ chain: vampchain, transport: custom(eth) });
       const hash = await walletClient.sendTransaction({ account: address, to: BURN_ADDRESS, value });
 
@@ -147,7 +153,7 @@ export function BridgeForm({
 
   async function doClaim() {
     if (!claim || claim.status !== "ready") return;
-    await switchChainAsync({ chainId: L1_CHAIN_ID });
+    await switchChainAsync({ chainId: homeChainId });
     submitClaim({
       address: BRIDGE_ADDRESS,
       abi: BRIDGE_ABI,
@@ -161,8 +167,8 @@ export function BridgeForm({
       <div>
         <h3 className="text-display text-lg text-bone">Deposit → mint {baseTokenSymbol} as gas</h3>
         <p className="mt-1.5 text-sm text-bone-dim/60">
-          Locks {baseTokenSymbol} here on Base; the relayer mints you the equivalent native
-          balance on the vampchain, usually within a few seconds.
+          Locks {baseTokenSymbol} here on {homeChain.name}; the relayer mints you the equivalent
+          native balance on the vampchain, usually within a few seconds.
         </p>
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <input
@@ -184,10 +190,11 @@ export function BridgeForm({
         ) : needsApproval ? (
           <button
             disabled={!parsedAmount || approving || approveConfirming}
-            onClick={() =>
-              parsedAmount &&
-              approve({ address: baseToken, abi: ERC20_ABI, functionName: "approve", args: [BRIDGE_ADDRESS, parsedAmount] })
-            }
+            onClick={async () => {
+              if (!parsedAmount) return;
+              await switchChainAsync({ chainId: homeChainId });
+              approve({ address: baseToken, abi: ERC20_ABI, functionName: "approve", args: [BRIDGE_ADDRESS, parsedAmount] });
+            }}
             className="mt-4 rounded-full bg-bone px-6 py-2.5 text-sm font-semibold text-ink transition-transform hover:scale-[1.02] disabled:opacity-40 disabled:hover:scale-100"
           >
             {approving || approveConfirming ? "Approving…" : `Approve ${baseTokenSymbol}`}
@@ -195,16 +202,16 @@ export function BridgeForm({
         ) : (
           <button
             disabled={!parsedAmount || !effectiveRecipient || depositing || depositConfirming}
-            onClick={() =>
-              parsedAmount &&
-              effectiveRecipient &&
+            onClick={async () => {
+              if (!parsedAmount || !effectiveRecipient) return;
+              await switchChainAsync({ chainId: homeChainId });
               deposit({
                 address: BRIDGE_ADDRESS,
                 abi: BRIDGE_ABI,
                 functionName: "deposit",
                 args: [chainId, parsedAmount, effectiveRecipient],
-              })
-            }
+              });
+            }}
             className="mt-4 rounded-full bg-blood px-6 py-2.5 text-sm font-semibold text-bone shadow-[0_0_30px_rgba(226,45,58,0.25)] transition-transform hover:scale-[1.02] hover:bg-blood-bright disabled:opacity-40 disabled:hover:scale-100"
           >
             {depositing || depositConfirming ? "Depositing…" : "Deposit & mint"}

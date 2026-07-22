@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { formatUsdc } from "@/lib/format";
 import { getDefaultAnnualFee } from "@/lib/registryReads";
+import { HOME_CHAIN_WEB_CONFIGS } from "@/lib/contracts";
 import { FangDivider } from "@/components/brand/FangDivider";
 
 export const dynamic = "force-dynamic";
@@ -73,7 +74,11 @@ const RISKS = [
 ];
 
 export default async function HowItWorksPage() {
-  const defaultAnnualFee = await getDefaultAnnualFee();
+  // Quoted from the first configured home chain — the fee is set in USDC
+  // terms and expected to match across all three, since it's the same
+  // owner-configurable `defaultAnnualFeeUSDC` deployed to each registry.
+  const firstConfigured = HOME_CHAIN_WEB_CONFIGS.find((c) => c.configured);
+  const defaultAnnualFee = firstConfigured ? await getDefaultAnnualFee(firstConfigured.homeChainId) : 0n;
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-14 sm:py-16">
