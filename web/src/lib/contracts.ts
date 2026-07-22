@@ -39,3 +39,8 @@ export const BURN_ADDRESS =
   (process.env.NEXT_PUBLIC_BURN_ADDRESS as Address | undefined) ?? ("0x12f5B89B02C8107278c5F24E74d7B44267C55d1f" as Address);
 
 export const CONTRACTS_CONFIGURED = REGISTRY_ADDRESS !== ZERO_ADDRESS;
+
+// Public by design — WalletConnect project IDs identify the dapp to the
+// relay network, they aren't secret. Unset in local dev is fine: wagmiConfig
+// just skips adding the walletConnect connector and falls back to injected-only.
+export const WALLETCONNECT_PROJECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;

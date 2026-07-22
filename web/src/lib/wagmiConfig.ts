@@ -1,13 +1,35 @@
-import { createConfig, http, injected } from "wagmi";
+import { type CreateConnectorFn, createConfig, http, injected } from "wagmi";
+import { walletConnect } from "wagmi/connectors";
 import { l1Chain } from "./viemClients";
+import { WALLETCONNECT_PROJECT_ID } from "./contracts";
 
-// Injected-only (MetaMask/Rabby/etc) for MVP — no WalletConnect project ID
-// required, so local dev works with zero external accounts. Swapping in
-// RainbowKit/ConnectKit later for broader wallet support + a nicer connect
-// UI is a drop-in upgrade, not a rearchitecture.
+// Injected (MetaMask/Rabby/etc, desktop extensions and wallets' in-app
+// browsers) plus WalletConnect (QR-code pairing — the only realistic way for
+// a plain mobile browser tab to reach a wallet app). WalletConnect only gets
+// added when a project id is actually configured, so local dev without one
+// still works, just injected-only. Also gated on `window` existing: this
+// module is imported by a "use client" component that Next.js still
+// executes during server-side prerendering, and @walletconnect/ethereum-provider
+// touches indexedDB in its constructor — unguarded, that crashes the build.
+const connectors: CreateConnectorFn[] = [injected()];
+if (typeof window !== "undefined" && WALLETCONNECT_PROJECT_ID) {
+  connectors.push(
+    walletConnect({
+      projectId: WALLETCONNECT_PROJECT_ID,
+      showQrModal: true,
+      metadata: {
+        name: "Vampchain",
+        description: "Pick any ERC20. We turn it into the native gas of its very own blockchain.",
+        url: "https://vampchain.com",
+        icons: ["https://vampchain.com/brand/social-avatar.svg"],
+      },
+    })
+  );
+}
+
 export const wagmiConfig = createConfig({
   chains: [l1Chain],
-  connectors: [injected()],
+  connectors,
   transports: {
     [l1Chain.id]: http(),
   },
