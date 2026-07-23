@@ -4,4 +4,5 @@ packages:
   - "infra/relayer"
   - "infra/provisioner"
   - "infra/rpc-gateway"
+  - "infra/verifier"
   - "packages/*"

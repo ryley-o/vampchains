@@ -7,6 +7,14 @@ import { getChainClient } from "@/lib/gatewayClient";
 import { recognizeContract, type ContractRecognition } from "@/lib/contractRecognition";
 import { GENESIS_CONTRACTS } from "@vampchains/contract-abis";
 import { formatTokenAmount, shortAddress, shortHash, timeAgo } from "@/lib/format";
+import { ContractReadPanel } from "@/components/ContractReadPanel";
+
+interface VerifiedContractMeta {
+  contractName: string;
+  compilerVersion: string;
+  matchType: string;
+  abi: unknown[];
+}
 
 const TRANSFER_EVENT = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
 
@@ -31,12 +39,14 @@ export function LiveAddressDetail({
   chainSymbol,
   wrappedTokenMeta,
   isKnownL1TokenWrapped,
+  verifiedContract,
 }: {
   evmChainId: string;
   address: `0x${string}`;
   chainSymbol: string;
   wrappedTokenMeta: WrappedTokenMeta | null;
   isKnownL1TokenWrapped: boolean;
+  verifiedContract: VerifiedContractMeta | null;
 }) {
   const [balance, setBalance] = useState<bigint | null>(null);
   const [recognition, setRecognition] = useState<ContractRecognition | null>(null);
@@ -95,7 +105,14 @@ export function LiveAddressDetail({
         </p>
       </div>
 
-      <RecognitionPanel recognition={recognition} wrappedTokenMeta={wrappedTokenMeta} isKnownL1TokenWrapped={isKnownL1TokenWrapped} />
+      <RecognitionPanel
+        recognition={recognition}
+        wrappedTokenMeta={wrappedTokenMeta}
+        isKnownL1TokenWrapped={isKnownL1TokenWrapped}
+        verifiedContract={verifiedContract}
+        evmChainId={evmChainId}
+        address={address}
+      />
 
       {recognition.kind !== "eoa" && (
         <div className="rounded-2xl border border-hairline bg-ink-raised p-6">
@@ -154,10 +171,16 @@ function RecognitionPanel({
   recognition,
   wrappedTokenMeta,
   isKnownL1TokenWrapped,
+  verifiedContract,
+  evmChainId,
+  address,
 }: {
   recognition: ContractRecognition;
   wrappedTokenMeta: WrappedTokenMeta | null;
   isKnownL1TokenWrapped: boolean;
+  verifiedContract: VerifiedContractMeta | null;
+  evmChainId: string;
+  address: `0x${string}`;
 }) {
   if (recognition.kind === "eoa") {
     return <p className="text-sm text-bone-dim/50">This is a wallet address (no contract code).</p>;
@@ -202,6 +225,26 @@ function RecognitionPanel({
             {shortAddress(wrappedTokenMeta.l1Token)}
           </p>
         )}
+      </div>
+    );
+  }
+
+  if (verifiedContract) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-emerald-800/60 bg-emerald-950/20 p-6">
+          <p className="font-mono text-xs uppercase tracking-wider text-emerald-300">
+            Verified · {verifiedContract.matchType} match
+          </p>
+          <p className="mt-1 text-sm text-bone">{verifiedContract.contractName}</p>
+          <p className="mt-1 font-mono text-xs text-bone-dim/60">solc {verifiedContract.compilerVersion}</p>
+        </div>
+        <div className="rounded-2xl border border-hairline bg-ink-raised p-6">
+          <h2 className="text-display text-lg text-bone">Read contract</h2>
+          <div className="mt-4">
+            <ContractReadPanel evmChainId={evmChainId} address={address} abi={verifiedContract.abi} />
+          </div>
+        </div>
       </div>
     );
   }

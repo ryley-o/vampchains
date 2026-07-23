@@ -246,13 +246,87 @@ you hit something similar:
   since neither the build log nor a fresh `--force` deploy alone showed
   anything was wrong.
 
+### 5. Fly.io + Vercel: `scan.vampchain.com` (block explorer + contract verification)
+
+```bash
+fly apps create vampchains-verifier
+fly secrets set -a vampchains-verifier \
+  DATABASE_URL=... GATEWAY_URL=https://vampchains-rpc-gateway.fly.dev
+fly deploy --config infra/verifier/fly.toml --dockerfile infra/verifier/Dockerfile --depot=false
+fly scale count 1 -a vampchains-verifier   # see fly.toml's own comment for why this must stay 1
+```
+
+New Vercel project, **Root Directory** set to `scan/`. Environment
+variables: `DATABASE_URL` (same Neon DB), `NEXT_PUBLIC_GATEWAY_URL` (same
+value as `web/`'s), `NEXT_PUBLIC_VERIFIER_URL` (your
+`vampchains-verifier.fly.dev` URL — the browser calls this directly from
+the verify-submission form, same reason RPC calls go straight from the
+browser to the gateway rather than through this app's own server). Deploy.
+
+Point `scan.vampchain.com`'s DNS at Vercel (an `A` record to `76.76.21.21`,
+or delegate the subdomain's nameservers to Vercel) — Vercel's own domain
+page shows the exact record it wants. Until that's done the app is still
+fully live at its own `*.vercel.app` URL.
+
+Real issues hit deploying this one, worth knowing about:
+
+- **`fly deploy`'s remote builder can fail with `failed to parse daemon
+  host "unix:///var/run/docker.sock": missing hostname`, then a local
+  `--local-only` build can fail with `docker is unavailable to build the
+  deployment image`.** Both come from the same root cause on a Mac running
+  Docker Desktop: flyctl looks for a Docker socket at the standard
+  `/var/run/docker.sock` path, but Docker Desktop's actual socket lives at
+  `~/.docker/run/docker.sock` (confirm with `docker context ls`) and
+  nothing symlinks the former to the latter in this setup. Fix: `export
+  DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"` before `fly deploy
+  --local-only`.
+- **If `fly deploy` just hangs at "Waiting for remote builder
+  `fly-builder-<name>`..." with no error, check `fly status -a
+  fly-builder-<name>`** — Fly's own auto-created remote-builder app can
+  itself be `suspended`, and `fly deploy` doesn't surface that; it just
+  waits indefinitely trying to wake it. Confirmed this was the actual
+  cause of a hang here, not a transient network issue. `--depot=false`
+  alone doesn't fix this — it only forces the legacy remote/local builder
+  path, and that path still tries to wake the same suspended app.
+- **`fly deploy --local-only` and even a raw `docker push` (after `fly
+  auth docker`) intermittently failed** with `error from registry: app
+  repository not found`, a closed-connection mid-push, or a `502 Bad
+  Gateway` from `registry.fly.io` — for an app that already had a working
+  image, so this wasn't the documented "brand-new app" case above. These
+  looked like transient registry-side flakiness rather than a real
+  config problem (retries eventually got further each time, and a final
+  `docker push` completed cleanly). **The reliable fallback**: build with
+  `docker buildx build --platform linux/amd64 -t
+  registry.fly.io/<app>:<tag> --push .` (one shot, no separate
+  build-then-push step — plain `docker build` on Apple Silicon produces
+  an arm64-only image, the same "Fly's fleet is amd64" issue noted
+  earlier in this doc, and `--local-only`'s build path hits it too, not
+  just the sidechain-node image), then `fly deploy --config <fly.toml> -a
+  <app> --image registry.fly.io/<app>:<tag>` to deploy that already-pushed
+  image directly — this sidesteps `fly deploy`'s own build/push
+  orchestration (which was the flaky part) entirely.
+- **This service needs real `forge build` (Foundry), unlike every other
+  service in this repo** — `infra/verifier/Dockerfile` copies the `forge`
+  binary from `ghcr.io/foundry-rs/foundry:latest` in a build stage rather
+  than running `foundryup` at build time (slower, less deterministic), and
+  pre-warms one common solc version into the image's shared cache so the
+  common case skips a first-compile fetch from
+  binaries.soliditylang.org — any other version is still fetched on
+  demand at request time.
+
 ## Cost notes
 
 Everything above fits comfortably in free/near-free tiers to start: Neon's
-free tier, Vercel's hobby tier, and each Fly app (relayer, provisioner,
+free tier, Vercel's hobby tier (two projects, `web/` and `scan/`, on the
+same Neon DB costs nothing extra), and each Fly app (relayer, provisioner,
 rpc-gateway, plus one small `shared-cpu-1x`/256MB machine per vampchain) is
 cheap — Fly's free allowance covers a handful of these outright, and each
-additional one is a couple dollars a month at most. The annual USDC fee
+additional one is a couple dollars a month at most. `infra/verifier` is the
+one exception worth sizing separately: `shared-cpu-2x`/1GB (compiling,
+especially `via_ir`, is meaningfully heavier than everything else here),
+single machine, no HA (see its `fly.toml`'s own comment for why) — still
+inexpensive at this traffic level, just not "a couple dollars" cheap. The
+annual USDC fee
 (`VampChainRegistry`'s `defaultAnnualFeeUSDC`, owner-adjustable) should track
 real observed cost plus a small margin — see "Economics" in
 `docs/ARCHITECTURE.md`.

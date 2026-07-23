@@ -1,5 +1,5 @@
 {
-  "name": "@vampchains/rpc-gateway",
+  "name": "@vampchains/verifier",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,8 +10,10 @@
   },
   "dependencies": {
     "@vampchains/chains": "workspace:*",
+    "@vampchains/contract-abis": "workspace:*",
     "@vampchains/db": "workspace:*",
-    "@vampchains/rate-limiter": "workspace:*"
+    "@vampchains/rate-limiter": "workspace:*",
+    "viem": "^2.21.54"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

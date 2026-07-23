@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { prisma } from "@vampchains/db";
 import { StatusPill } from "@/components/StatusPill";
 import { LiveBlockList } from "@/components/LiveBlockList";
@@ -38,6 +39,15 @@ export default async function ChainOverviewPage({ params }: { params: Promise<{ 
           </p>
         </div>
         <StatusPill status={chain.status} />
+      </div>
+
+      <div className="flex gap-4 text-xs">
+        <Link href={`/${evmChainIdParam}/contracts`} className="text-bone-dim/60 hover:text-blood-bright">
+          Verified contracts →
+        </Link>
+        <Link href={`/${evmChainIdParam}/verify`} className="text-bone-dim/60 hover:text-blood-bright">
+          Verify a contract →
+        </Link>
       </div>
 
       {live ? (

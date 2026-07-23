@@ -1,0 +1,39 @@
+# fly deploy --config infra/verifier/fly.toml --dockerfile infra/verifier/Dockerfile --depot=false
+app = "vampchains-verifier"
+primary_region = "iad"
+
+[build]
+
+# Deliberately single-machine: etherscanCompat.ts's submit->poll GUID
+# handshake is held in an in-memory Map per process (see its own comment
+# for why — verification here runs synchronously, unlike real Etherscan's
+# queued jobs). Fly's default 2-machine HA would let a submit land on one
+# instance and a poll land on the other, permanently 404ing every real
+# verification (confirmed live — this is not hypothetical). Verification
+# isn't on the money-moving path, so trading HA for correctness here is the
+# right call rather than adding a shared store for this alone.
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  # Compiles are CPU-bound and can run tens of seconds (via_ir especially) —
+  # capped low so a burst of submissions queues/backpressures instead of
+  # racing each other for CPU on one instance. Contrast with rpc-gateway's
+  # much higher limit, which only proxies I/O-bound RPC calls.
+  [services.concurrency]
+    type = "requests"
+    hard_limit = 4
+    soft_limit = 2
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "1gb"

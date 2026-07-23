@@ -3,10 +3,12 @@ interface Bucket {
   lastRefill: number;
 }
 
-/// Simple per-key token bucket, in-process memory. Valid here specifically
-/// because this gateway runs as a small number of persistent instances (not
-/// serverless) — see docs/ARCHITECTURE.md known limitations for the caveat
-/// if this ever needs to scale past that.
+/// Simple per-key token bucket, in-process memory. Valid specifically for a
+/// small number of persistent process instances (Fly apps, not serverless
+/// functions) — see docs/ARCHITECTURE.md known limitations for the caveat.
+/// Originally infra/rpc-gateway's own class; extracted here once
+/// infra/verifier needed the identical thing, so the two services can't
+/// drift from each other.
 export class RateLimiter {
   private buckets = new Map<string, Bucket>();
 

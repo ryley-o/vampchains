@@ -102,6 +102,7 @@ model Chain {
   wrappedTokens        WrappedToken[]
   snapshotEntitlements SnapshotEntitlement[]
   gasContributions     GasContribution[]
+  verifiedContracts    VerifiedContract[]
 
   @@unique([homeChainId, chainId])
   @@index([status])
@@ -302,6 +303,45 @@ model GasContribution {
 
   @@unique([chainDbId, address])
   @@index([chainDbId])
+}
+
+/// A contract whose source has been verified against what's actually
+/// deployed on one specific vampchain — produced by infra/verifier.
+/// Deliberately compound-keyed by (chainDbId, address), never bare
+/// address: VampWrappedTokenFactory's clones use CREATE2 with a salt of
+/// `keccak256(l1Token)` alone (see contracts/src/VampWrappedTokenFactory.sol),
+/// so the same L1 token bridged into two different vampchains gets the
+/// identical wrapped-clone address on both — a bare-address cache would
+/// silently conflate two different chains' contracts. `standardJsonInput`
+/// is kept as the canonical record of exactly what was compiled (compiler
+/// version, optimizer settings, evmVersion, remappings all in one place) —
+/// see infra/verifier's docstrings for why that's the submission format
+/// this is built around, not a handful of separate form fields.
+model VerifiedContract {
+  id        Int   @id @default(autoincrement())
+  chain     Chain @relation(fields: [chainDbId], references: [id])
+  chainDbId Int
+  chainId   BigInt
+
+  address           String
+  contractName      String
+  compilerVersion   String
+  optimizerEnabled  Boolean
+  optimizerRuns     Int?
+  viaIr             Boolean @default(false)
+  standardJsonInput Json
+  constructorArgs   String?
+  abi               Json
+  /// "full" (exact runtime bytecode match, including the trailing CBOR
+  /// metadata hash) or "partial" (matches once that metadata hash is
+  /// stripped from both sides) — Sourcify's own match-quality definitions,
+  /// reused rather than inventing a new scheme.
+  matchType String
+
+  verifiedAt DateTime @default(now())
+
+  @@unique([chainDbId, address])
+  @@index([chainId])
 }
 
 /// Last processed block per on-chain watcher, so the indexer/relayer can

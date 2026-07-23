@@ -9,8 +9,10 @@
    infra cost — see "Economics" below).
 3. That pays for us to run a **vampchain**: a single-node EVM sidechain whose
    native gas currency is that ERC20 token. One geth node (Clique
-   proof-of-authority) in Docker, one rate-limited RPC endpoint, one tiny
-   built-in block explorer, all served from Fly.io.
+   proof-of-authority) in Docker, one rate-limited RPC endpoint, all served
+   from Fly.io. Every vampchain also shows up on `scan.vampchain.com`, a
+   real block explorer across every chain with Foundry-compatible contract
+   verification — see "`scan/` + `infra/verifier/`" below.
 4. To get the base currency onto the vampchain, you deposit the ERC20 into
    `VampBridge` on the home chain. Our relayer sees the deposit and mints you
    the equivalent native balance on the vampchain via a real signed transfer
@@ -360,14 +362,109 @@ API, so the whole system runs end-to-end on a laptop with no Fly account.
 - Create-chain flow: pick a token (address → fetch name/symbol/decimals via
   viem), pay the annual fee (USDC approve + `createChain`).
 - Chain detail page: funding balance/runway, top-up button, bridge
-  (deposit/withdraw) UI, minimal explorer (latest blocks/txs/an address
-  lookup) — all read directly from the vampchain's own RPC via viem, no
-  separate explorer service needed at this scale.
+  (deposit/withdraw) UI, a tiny built-in explorer widget (latest 5
+  blocks/an address balance lookup) — read directly from the vampchain's
+  own RPC via viem. This is deliberately minimal; `scan/` (below) is the
+  real, full explorer.
 - Talks to each vampchain via `infra/rpc-gateway`'s public URL, not directly
   — see that section above for why.
 - Wallet connect via wagmi + viem + ConnectKit.
 - Disclaimer/terms page + a required acknowledgement checkbox on chain
   creation (crypto project, keep the guardrails visible even at MVP scale).
+
+### `scan/` + `infra/verifier/` — the real block explorer
+
+An earlier version of this document concluded the opposite of what's below:
+"no separate explorer service needed at this scale." That held for a
+single dev's own needs; a real, unified explorer across *every* vampchain
+— plus contract verification, which wasn't possible at all before this —
+is valuable independent of that, the way Etherscan is valuable beyond any
+one team. This is that pivot.
+
+The shape of the problem is genuinely unlike Etherscan (one chain) or even
+Blockscout's usual per-chain-instance model: an unbounded, growing set of
+independent, mostly-low-traffic, sometimes-torn-down chains. Standing up
+dedicated per-chain explorer infrastructure (Blockscout's own model —
+Postgres + indexer + web stack per chain) would be the wrong cost shape
+entirely. Etherscan itself isn't open source; Otterscan is lightweight but
+needs Erigon/Reth's custom `ots_` RPC namespace, which vanilla geth (every
+vampchain's client) doesn't speak.
+
+**`scan/`** (a separate Next.js app + Vercel project, not part of `web/` —
+explorer traffic like crawlers/bots probing every address has a
+completely different shape than wallet-interaction flows, and isolating
+them means neither can eat the other's budget or take the other down) is
+a **no-indexer** explorer: server components read only Postgres
+(`Chain`/`WrappedToken`/`VerifiedContract`), and all RPC reads (blocks,
+txs, balances, `eth_getLogs` for ERC20 transfer history) happen
+client-side via viem, straight from the visitor's browser to
+`infra/rpc-gateway`'s public URL — never proxied through `scan/`'s own
+server. This is load-bearing, not a style choice: the gateway's
+`RateLimiter` is keyed per visitor IP, which only holds up if every
+visitor's browser talks to it directly; a server-side proxy would
+collapse every visitor onto Vercel's small pool of outbound IPs and share
+one rate bucket for the whole site.
+
+Two free contract-recognition wins fall out of the contracts themselves
+(`scan/src/lib/contractRecognition.ts`): `VampWrappedTokenFactory` and its
+`VampWrappedToken` implementation are genesis-baked at the same address
+with the same bytecode on *every* vampchain (deployed once per chain, but
+byte-identical always), and every wrapped-token clone is the same
+EIP-1167 minimal proxy pointing at that same implementation constant —
+both recognizable from a bare `eth_getCode` pattern match, zero
+compilation, zero DB row, on every chain, forever.
+
+**Contract verification** (`infra/verifier/`, a separate Fly app) is what
+makes "integrates with Foundry" literally true: it speaks just enough of
+Etherscan's legacy contract-verification API
+(`module=contract&action=verifysourcecode`/`checkverifystatus`/`getabi`)
+that `forge verify-contract --verifier custom --verifier-url
+https://vampchains-verifier.fly.dev/etherscan-compat/api/<evmChainId>`
+works against it completely unmodified — no changes needed on a user's
+own Foundry install. `evmChainId` has to be a URL path segment rather than
+a request field: live testing showed forge's actual request carries no
+chain identifier in the body at all (not even `module`/`chainid`), which
+also matches this project's own rule that anything chain-scoped belongs in
+the route, never inferred.
+
+The actual compilation engine is real `forge build` — the verifier
+reconstructs a scratch Foundry project from a submitted Solidity
+standard-json-input (the same canonical, self-describing format
+Etherscan/`forge verify-contract` themselves use, chosen specifically to
+avoid "optimizer settings mismatch" ambiguity from hand-filled form
+fields), runs `forge build --force` in an isolated per-request
+`FOUNDRY_HOME`, then compares the compiled deployed bytecode against
+`eth_getCode`'s real result (Sourcify's own full-match/partial-match
+semantics: full match is exact runtime bytecode including the trailing
+CBOR metadata hash, partial match is a match once that hash is stripped).
+Compiling isn't executing — nothing here ever runs the resulting contract
+(no `forge script`, no `cast send`), so the real risk is resource
+exhaustion (a slow `via_ir` compile), not privilege escalation; covered by
+a wall-clock timeout, a submission-size cap, and a low per-instance
+concurrency cap in `fly.toml`.
+
+Every vampchain's genesis is permanently capped at the London EVM fork (no
+post-London fork blocks) — solc 0.8.20+ defaults to targeting a later fork
+unless told otherwise, so the verifier validates `evmVersion` and
+**rejects** (never silently coerces) any submission targeting later than
+London.
+
+`VerifiedContract` rows are compound-keyed `(chainDbId, address)`, never
+bare `address` — the same salt-collision fact noted elsewhere in this
+document (`VampWrappedTokenFactory`'s CREATE2 salt is `keccak256(l1Token)`
+alone, no chain identity) means the same L1 token bridged into two
+different vampchains gets the identical wrapped-clone address on both, so
+any address-keyed cache or lookup across chains is unsafe without the
+chain in the key.
+
+`infra/verifier` runs as a **single Fly machine, deliberately not HA**:
+the Etherscan-compat submit→poll handshake (a GUID a client polls for the
+result) is held in an in-memory map per process, since verification here
+runs synchronously rather than being queued like real Etherscan's. Fly's
+default 2-machine HA setup lets a submit land on one instance and a poll
+land on the other, which 404s every real verification — confirmed live,
+not hypothetical. Verification isn't on the money-moving path, so trading
+HA for correctness here is the right call.
 
 ### Data: Neon Postgres + Prisma
 

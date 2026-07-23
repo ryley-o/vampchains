@@ -30,6 +30,14 @@ export default async function AddressDetailPage({
     where: { chainDbId: chain.id, wrapped: address },
   });
 
+  // Only reachable when the client-side genesis/EIP-1167 recognition
+  // (contractRecognition.ts) comes back "unrecognized" — this is the one
+  // case that needs a real DB round-trip, compound-keyed by (chainDbId,
+  // address) for the same salt-collision reason as WrappedToken above.
+  const verifiedContract = await prisma.verifiedContract.findUnique({
+    where: { chainDbId_address: { chainDbId: chain.id, address } },
+  });
+
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-5 py-14">
       <div>
@@ -47,6 +55,16 @@ export default async function AddressDetailPage({
           chainSymbol={chain.symbol}
           wrappedTokenMeta={wrappedByAddress ? { name: wrappedByAddress.name, symbol: wrappedByAddress.symbol, decimals: wrappedByAddress.decimals, l1Token: wrappedByAddress.l1Token } : null}
           isKnownL1TokenWrapped={!!wrappedToken}
+          verifiedContract={
+            verifiedContract
+              ? {
+                  contractName: verifiedContract.contractName,
+                  compilerVersion: verifiedContract.compilerVersion,
+                  matchType: verifiedContract.matchType,
+                  abi: verifiedContract.abi as unknown[],
+                }
+              : null
+          }
         />
       </ChainGate>
     </div>

@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { prisma } from "@vampchains/db";
 import { isAllowedMethod } from "./allowlist.js";
-import { RateLimiter } from "./rateLimiter.js";
+import { RateLimiter } from "@vampchains/rate-limiter";
 import type { GatewayConfig } from "./config.js";
 
 interface JsonRpcRequest {
