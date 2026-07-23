@@ -42,3 +42,6 @@ dist/
 build/
 .vercel
 .env*
+
+# playwright MCP scratch snapshots/screenshots
+.playwright-mcp/

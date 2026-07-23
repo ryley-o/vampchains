@@ -15,6 +15,20 @@ export default function CreatePage() {
           How it all works →
         </Link>
       </p>
+      <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2">
+        <p className="flex items-center gap-2 text-xs text-bone-dim/60">
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
+          <span>
+            You keep <span className="font-semibold text-emerald-300">1/3 of every gas fee</span>, forever
+          </span>
+        </p>
+        <p className="flex items-center gap-2 text-xs text-bone-dim/60">
+          <span className="h-1.5 w-1.5 shrink-0 animate-heartbeat rounded-full bg-blood" />
+          <span>
+            Every user <span className="font-semibold text-blood-bright">helps fund its runway</span>
+          </span>
+        </p>
+      </div>
       <FangDivider className="my-10" />
       <CreateChainForm />
       <p className="mt-8 text-xs leading-relaxed text-bone-dim/40">

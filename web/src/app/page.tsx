@@ -75,6 +75,21 @@ export default async function HomePage() {
               Explore chains
             </a>
           </div>
+          <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2">
+            <p className="flex items-center gap-2 text-xs text-bone-dim/60">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
+              <span>
+                Creators keep <span className="font-semibold text-emerald-300">1/3 of every gas fee</span>, forever
+              </span>
+            </p>
+            <p className="flex items-center gap-2 text-xs text-bone-dim/60">
+              <span className="h-1.5 w-1.5 shrink-0 animate-heartbeat rounded-full bg-blood" />
+              <span>
+                Every transaction{" "}
+                <span className="font-semibold text-blood-bright">extends its chain&apos;s runway</span>
+              </span>
+            </p>
+          </div>
         </div>
       </section>
 
