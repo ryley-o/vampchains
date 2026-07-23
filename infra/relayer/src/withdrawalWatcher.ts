@@ -4,7 +4,7 @@ import type { privateKeyToAccount } from "viem/accounts";
 import type { Chain as ChainRow } from "@vampchains/db";
 import { prisma } from "@vampchains/db";
 import { signClaim, signClaimSwept } from "./eip712.js";
-import { scaleFromNativeUnits } from "./units.js";
+import { scaleFromNativeUnits, scaleToNativeUnits } from "./units.js";
 
 type SigningAccount = ReturnType<typeof privateKeyToAccount>;
 
@@ -93,6 +93,16 @@ async function handleBurn(
   const existing = await prisma.withdrawalEvent.findUnique({ where: { sidechainTxHash } });
   if (existing?.signature) return;
 
+  if (isFeeSweep) {
+    await handleFeeSweepBurn(chain, sidechainTxHash, from, nativeAmount, sidechainBlock, signingAccount, l1ChainId, bridgeAddress);
+    return;
+  }
+
+  // A user withdrawal is a one-off, deliberate action on their own funds —
+  // unlike a protocol fee sweep, there's no ongoing per-chain stream to
+  // accumulate this into if it rounds to zero, so this stays a hard drop
+  // (with a clear warning) rather than silently holding their funds
+  // pending some future top-up they didn't ask for.
   const amount = scaleFromNativeUnits(nativeAmount, chain.baseTokenDecimals);
   if (amount === 0n) {
     console.warn(
@@ -101,17 +111,11 @@ async function handleBurn(
     return;
   }
 
-  const signature = isFeeSweep
-    ? await signClaimSwept(signingAccount, {
-        l1ChainId,
-        bridgeAddress,
-        claim: { vampChainId: chain.chainId, amount, sidechainTxHash },
-      })
-    : await signClaim(signingAccount, {
-        l1ChainId,
-        bridgeAddress,
-        claim: { vampChainId: chain.chainId, to: from, amount, sidechainTxHash },
-      });
+  const signature = await signClaim(signingAccount, {
+    l1ChainId,
+    bridgeAddress,
+    claim: { vampChainId: chain.chainId, to: from, amount, sidechainTxHash },
+  });
 
   await prisma.withdrawalEvent.upsert({
     where: { sidechainTxHash },
@@ -123,12 +127,86 @@ async function handleBurn(
       sidechainBlock,
       to: from,
       amount: amount.toString(),
-      kind: isFeeSweep ? "FEE_SWEEP" : "USER",
+      kind: "USER",
       signature,
     },
   });
 
   console.log(
-    `[withdrawals] signed ${isFeeSweep ? "swept-fee" : "user"} claim for ${amount} raw units (from ${from}) on chain ${chain.chainId} (sidechain tx ${sidechainTxHash})`
+    `[withdrawals] signed user claim for ${amount} raw units (from ${from}) on chain ${chain.chainId} (sidechain tx ${sidechainTxHash})`
+  );
+}
+
+/// A fee sweep is a real one-shot burn transaction each time (unlike
+/// base-fee-burn tracking, which is pure accounting with nothing to
+/// physically move — see baseFeeWatcher.ts), so its native-wei amount
+/// might not convert to even 1 raw base-token unit on its own — common for
+/// a low-decimal token against the sweep dust threshold. Rather than
+/// stranding that value forever (the previous behavior: drop it with a
+/// console warning, no way to ever recover it), accumulate it into
+/// `Chain.unclaimedSweptNativeWei` and only sign a `ClaimSwept` once the
+/// cumulative total actually clears one raw unit — same discipline
+/// baseFeeWatcher.ts already uses for base-fee burn. The attestation's
+/// `sidechainTxHash` is always *this* sweep's hash, the one that pushed
+/// the cumulative total over the threshold — VampBridge's `claimed`
+/// mapping is keyed by that hash and each one can only ever be used once,
+/// regardless of how many earlier sweeps contributed dust toward it.
+/// Updating the ledger and creating the claim happen in one transaction —
+/// otherwise a crash between the two could either double-count this
+/// sweep's contribution on retry, or lose it outright.
+async function handleFeeSweepBurn(
+  chain: ChainRow,
+  sidechainTxHash: `0x${string}`,
+  from: Address,
+  nativeAmount: bigint,
+  sidechainBlock: bigint,
+  signingAccount: SigningAccount,
+  l1ChainId: number,
+  bridgeAddress: Address
+) {
+  const newUnclaimedTotal = BigInt(chain.unclaimedSweptNativeWei) + nativeAmount;
+  const amount = scaleFromNativeUnits(newUnclaimedTotal, chain.baseTokenDecimals);
+
+  if (amount === 0n) {
+    await prisma.chain.update({
+      where: { id: chain.id },
+      data: { unclaimedSweptNativeWei: newUnclaimedTotal.toString() },
+    });
+    console.log(
+      `[withdrawals] fee-sweep of ${nativeAmount} native wei on chain ${chain.chainId} still below 1 raw ${chain.baseTokenSymbol} unit (${chain.baseTokenDecimals} decimals) — accumulated to ${newUnclaimedTotal} native wei, deferred to a future sweep`
+    );
+    return;
+  }
+
+  // Only the portion that actually converts is claimed; whatever's left
+  // over (necessarily less than one raw unit) carries forward.
+  const remainder = newUnclaimedTotal - scaleToNativeUnits(amount, chain.baseTokenDecimals);
+
+  const signature = await signClaimSwept(signingAccount, {
+    l1ChainId,
+    bridgeAddress,
+    claim: { vampChainId: chain.chainId, amount, sidechainTxHash },
+  });
+
+  await prisma.$transaction([
+    prisma.chain.update({ where: { id: chain.id }, data: { unclaimedSweptNativeWei: remainder.toString() } }),
+    prisma.withdrawalEvent.upsert({
+      where: { sidechainTxHash },
+      update: { signature },
+      create: {
+        chainDbId: chain.id,
+        chainId: chain.chainId,
+        sidechainTxHash,
+        sidechainBlock,
+        to: from,
+        amount: amount.toString(),
+        kind: "FEE_SWEEP",
+        signature,
+      },
+    }),
+  ]);
+
+  console.log(
+    `[withdrawals] signed swept-fee claim for ${amount} raw units on chain ${chain.chainId} (sidechain tx ${sidechainTxHash}, ${remainder} native wei carried forward)`
   );
 }

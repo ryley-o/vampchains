@@ -58,7 +58,12 @@ async function tickDeposits(runtime: HomeChainRuntime, treasuryAccount: SigningA
 /// directly — but claim-signing still has to happen against whichever home
 /// chain's bridge that specific vampchain was created from, so each pass
 /// looks up the right `HomeChainRuntime` via `chain.homeChainId` first.
-async function tickVampchain(chain: ChainRow, runtimes: Map<number, HomeChainRuntime>, cfg: RelayerConfig) {
+async function tickVampchain(
+  chain: ChainRow,
+  runtimes: Map<number, HomeChainRuntime>,
+  cfg: RelayerConfig,
+  dueForFeeSweep: boolean
+) {
   const home = runtimes.get(chain.homeChainId);
   if (!home) {
     console.warn(
@@ -68,10 +73,17 @@ async function tickVampchain(chain: ChainRow, runtimes: Map<number, HomeChainRun
   }
   const { config, signingAccount } = home;
 
-  try {
-    await sweepTips(chain, cfg.cliqueSignerAddress, cfg.burnAddress, cfg.feeSweepDustThresholdWei);
-  } catch (err) {
-    console.error(`[fee-sweep] failed for chain ${chain.chainId}:`, err);
+  // Sweeping only prepares a claim — someone still has to manually submit
+  // claimSwept() on the home chain to actually move money (no automation or
+  // UI for that exists yet), so there's no benefit to sweeping on the
+  // relayer's tight per-tick cadence. Decoupled to its own slower interval
+  // rather than running every ~20s for no one waiting on it.
+  if (dueForFeeSweep) {
+    try {
+      await sweepTips(chain, cfg.cliqueSignerAddress, cfg.burnAddress, cfg.feeSweepDustThresholdWei);
+    } catch (err) {
+      console.error(`[fee-sweep] failed for chain ${chain.chainId}:`, err);
+    }
   }
   try {
     await pollWithdrawals(chain, signingAccount, config.homeChainId, config.bridgeAddress, cfg.burnAddress, cfg.cliqueSignerAddress);
@@ -91,9 +103,11 @@ async function tickVampchain(chain: ChainRow, runtimes: Map<number, HomeChainRun
 }
 
 // Module-scope, not part of RelayerConfig: this is mutable runtime state
-// (when the leaderboard indexer last actually ran), not configuration. A
-// single long-lived process, so no concurrency concerns sharing this.
+// (when the leaderboard indexer/fee sweep last actually ran), not
+// configuration. A single long-lived process, so no concurrency concerns
+// sharing this.
 let lastGasContributionRun = 0;
+let lastFeeSweepRun = 0;
 
 async function tick(runtimes: Map<number, HomeChainRuntime>, treasuryAccount: SigningAccount, cfg: RelayerConfig) {
   for (const runtime of runtimes.values()) {
@@ -108,8 +122,11 @@ async function tick(runtimes: Map<number, HomeChainRuntime>, treasuryAccount: Si
     return;
   }
 
+  const dueForFeeSweep = Date.now() - lastFeeSweepRun >= cfg.feeSweepIntervalMs;
+  if (dueForFeeSweep) lastFeeSweepRun = Date.now();
+
   for (const chain of activeChains) {
-    await tickVampchain(chain, runtimes, cfg);
+    await tickVampchain(chain, runtimes, cfg, dueForFeeSweep);
   }
 
   const dueForGasContribution = Date.now() - lastGasContributionRun >= cfg.gasContributionIntervalMs;

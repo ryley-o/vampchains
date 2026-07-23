@@ -16,17 +16,25 @@ const MAX_EVM_CHAIN_ID_ATTEMPTS = 10;
 /// Scans one home chain's VampChainRegistry for new ChainCreated events and
 /// queues each one for provisioning (PENDING_PROVISION row in Postgres).
 /// Idempotent: a chain already present in the DB (matched by
-/// `[homeChainId, chainId]`, *not* bare `chainId` — see the Chain model's
-/// docstring for why that's never unique on its own) is left untouched
-/// regardless of its status. Cursor id includes the registry address, not
-/// just homeChainId — a registry redeploy (new contract, same home chain)
-/// must never resume from the old contract's block height, since blocks on
-/// the home chain keep advancing regardless of which contract we're
-/// watching. Without this, a redeploy silently misses every ChainCreated
-/// event between the old cursor's block and the new contract's own
-/// deployment block, forever (caught live this session: a chain created
-/// right after a registry redeploy sat un-provisioned indefinitely until
-/// the stale cursor was found and manually reset).
+/// `[homeChainId, registryAddress, chainId]`, *not* bare `[homeChainId,
+/// chainId]` — see the Chain model's docstring for why that's never unique
+/// on its own) is left untouched regardless of its status. Cursor id
+/// includes the registry address, not just homeChainId — a registry
+/// redeploy (new contract, same home chain) must never resume from the old
+/// contract's block height, since blocks on the home chain keep advancing
+/// regardless of which contract we're watching. Without this, a redeploy
+/// silently misses every ChainCreated event between the old cursor's block
+/// and the new contract's own deployment block, forever (caught live this
+/// session: a chain created right after a registry redeploy sat
+/// un-provisioned indefinitely until the stale cursor was found and
+/// manually reset). The dedup key needed the same registry-scoping for the
+/// same underlying reason: a redeploy restarts `chainId` from 1, and
+/// without `registryAddress` in the match, the new registry's chainId-1
+/// event collides with the old registry's chainId-1 row and gets silently
+/// treated as already-known (caught live this session too, right after the
+/// dedup gap above was fixed — a chain created on the new registry sat
+/// un-provisioned because the old registry's chain 1 row was still in the
+/// DB).
 export async function pollNewChains(
   l1Client: PublicClient,
   homeChainId: number,
@@ -60,13 +68,16 @@ export async function pollNewChains(
     const { chainId, baseToken, creator, name, symbol } = log.args;
     if (chainId === undefined || !baseToken || !creator || name === undefined || symbol === undefined) continue;
 
-    const existing = await prisma.chain.findUnique({ where: { homeChainId_chainId: { homeChainId, chainId } } });
+    const existing = await prisma.chain.findUnique({
+      where: { homeChainId_registryAddress_chainId: { homeChainId, registryAddress: registryAddress.toLowerCase(), chainId } },
+    });
     if (existing) continue;
 
     const { tokenName, tokenSymbol, decimals } = await readTokenMetadata(l1Client, baseToken);
 
     const evmChainId = await createChainWithFreshEvmChainId({
       homeChainId,
+      registryAddress: registryAddress.toLowerCase(),
       chainId,
       baseToken,
       baseTokenName: tokenName,
@@ -86,6 +97,7 @@ export async function pollNewChains(
 
 interface NewChainData {
   homeChainId: number;
+  registryAddress: string;
   chainId: bigint;
   baseToken: Address;
   baseTokenName: string;

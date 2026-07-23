@@ -55,6 +55,26 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
     uint256 public constant MAX_NAME_LEN = 64;
     uint256 public constant MAX_SYMBOL_LEN = 16;
 
+    /// @notice Valid range for `baseToken.decimals()`. Native currency on
+    /// every vampchain is always 18-decimal wei by EVM convention, and the
+    /// off-chain relayer scales any base token's raw units into that
+    /// (see infra/relayer/src/units.ts) — `MAX_BASE_TOKEN_DECIMALS` is the
+    /// hard ceiling that scaling can support at all: above 18, the relayer
+    /// can never convert a deposit into native wei in the first place, so
+    /// every deposit on such a chain would simply throw forever, discovered
+    /// only after the annual fee's already been collected and the chain
+    /// already provisioned. `MIN_BASE_TOKEN_DECIMALS` guards the opposite
+    /// end: below it, gas-fee-derived creator/protocol revenue (tips +
+    /// base-fee burn) needs cumulative native-wei burn to reach the
+    /// equivalent of a full whole token before even 1 raw unit becomes
+    /// claimable — technically still safe (both revenue streams accumulate
+    /// exactly rather than stranding dust), but impractically slow for a
+    /// low-decimal token, defeating the point of that incentive. 2 admits
+    /// USDC/USDT (6) and every other realistic fungible token comfortably
+    /// while excluding the genuinely degenerate 0-1 decimal cases.
+    uint8 public constant MIN_BASE_TOKEN_DECIMALS = 2;
+    uint8 public constant MAX_BASE_TOKEN_DECIMALS = 18;
+
     /// @notice How long a chain stays fully open (deposits, minting,
     /// top-ups — everything) after its paid-up funding runs out, before it
     /// actually gets torn down. A deliberate "shut-off grace window," not
@@ -117,6 +137,7 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
 
     error InvalidToken();
     error InvalidLabel();
+    error InvalidDecimals();
     error TokenAlreadyActive();
     error ChainNotFound();
     error ChainNotActive();
@@ -157,8 +178,11 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
         if (bytes(symbol).length < MIN_LABEL_LEN || bytes(symbol).length > MAX_SYMBOL_LEN) revert InvalidLabel();
         if (activeChainByToken[baseToken] != 0) revert TokenAlreadyActive();
 
-        // Sanity probe: must at least look like an ERC20 (reverts otherwise).
-        IERC20Decimals(baseToken).decimals();
+        // Must at least look like an ERC20 (reverts otherwise) AND fall
+        // within a range the off-chain system can actually support as a
+        // vampchain's native gas currency — see MIN/MAX_BASE_TOKEN_DECIMALS.
+        uint8 tokenDecimals = IERC20Decimals(baseToken).decimals();
+        if (tokenDecimals < MIN_BASE_TOKEN_DECIMALS || tokenDecimals > MAX_BASE_TOKEN_DECIMALS) revert InvalidDecimals();
 
         uint256 fee = defaultAnnualFeeUSDC;
         chainId = nextChainId++;

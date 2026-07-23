@@ -49,12 +49,23 @@ model Chain {
   /// 46630 Robinhood Chain Testnet) — i.e. which of our three
   /// VampChainRegistry deployments this row's `chainId` was assigned by.
   /// `chainId` is a bare incrementing counter *per registry*, so it is
-  /// only unique *within* a home chain, never globally — two vampchains on
-  /// different home chains can and will both be "chainId 1". Never used
-  /// on its own as a public routing/lookup key for exactly this reason —
-  /// see `evmChainId` below, which is what's globally unique instead.
+  /// only unique *within* a (homeChainId, registryAddress) pair, never
+  /// globally — two vampchains on different home chains, OR on the same
+  /// home chain but different registry deployments, can and will both be
+  /// "chainId 1". Never used on its own as a public routing/lookup key for
+  /// exactly this reason — see `evmChainId` below, which is what's
+  /// globally unique instead.
   homeChainId Int
-  chainId     BigInt // VampChainRegistry chainId — unique only within homeChainId, see above
+  /// Which VampChainRegistry deployment assigned `chainId` — required
+  /// alongside `homeChainId` to make `chainId` actually unique. A registry
+  /// redeploy on the same home chain restarts its `chainId` counter from 1,
+  /// so without this field a fresh chainId-1 collides with an old
+  /// registry's chainId-1 row and `chainWatcher.ts`'s dedup check (matching
+  /// on homeChainId+chainId alone) silently treats the new chain as
+  /// already-known, never provisioning it. Hit for real the first time a
+  /// registry was redeployed this session.
+  registryAddress String
+  chainId         BigInt // VampChainRegistry chainId — unique only within (homeChainId, registryAddress), see above
   /// This vampchain's own EVM chain id — globally unique (randomly
   /// generated, see infra/provisioner/src/evmChainId.ts) regardless of
   /// which home chain spawned it. The public identifier used in URLs and
@@ -93,6 +104,20 @@ model Chain {
   baseFeeAttestedAt                DateTime?
   baseFeeAttestationSignature      String?
 
+  /// Same "keep the exact native-wei total, never compound rounding dust"
+  /// discipline as cumulativeBaseFeeBurnedNativeWei above, applied to swept
+  /// tip revenue instead of base-fee burn — see feeSweep.ts/withdrawalWatcher.ts.
+  /// A tip sweep is a real one-shot burn transaction (unlike base-fee burn,
+  /// which is just accounting with nothing to physically move), so each
+  /// sweep's native-wei amount gets added here; a ClaimSwept attestation is
+  /// only ever signed for the portion that converts to a nonzero raw token
+  /// unit, and this field is reset to just the sub-unit remainder each time
+  /// — so a low-decimal base token defers claimable tip revenue across
+  /// multiple sweeps instead of silently stranding it forever (a real bug
+  /// this replaced: the previous design dropped the entire swept amount
+  /// with just a console warning whenever a single sweep rounded to zero).
+  unclaimedSweptNativeWei String @default("0")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -105,7 +130,7 @@ model Chain {
   verifiedContracts    VerifiedContract[]
   txActivities         TxActivity[]
 
-  @@unique([homeChainId, chainId])
+  @@unique([homeChainId, registryAddress, chainId])
   @@index([status])
   @@index([baseToken])
   @@index([homeChainId])

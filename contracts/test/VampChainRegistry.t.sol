@@ -180,6 +180,30 @@ contract VampChainRegistryTest is Test {
         registry.createChain(address(0xdead), "x", "X");
     }
 
+    function test_createChain_revertsOnTooManyDecimals() public {
+        MockERC20 tooPrecise = new MockERC20("Too Precise", "PREC", 19);
+        vm.expectRevert(VampChainRegistry.InvalidDecimals.selector);
+        vm.prank(alice);
+        registry.createChain(address(tooPrecise), "Precise", "PREC");
+    }
+
+    function test_createChain_revertsOnTooFewDecimals() public {
+        MockERC20 wholeUnitsOnly = new MockERC20("Whole Units", "WHOLE", 1);
+        vm.expectRevert(VampChainRegistry.InvalidDecimals.selector);
+        vm.prank(alice);
+        registry.createChain(address(wholeUnitsOnly), "Whole", "WHOLE");
+    }
+
+    function test_createChain_allowsBoundaryDecimals() public {
+        MockERC20 minDecimals = new MockERC20("Min Decimals", "MIN", 2);
+        vm.prank(alice);
+        registry.createChain(address(minDecimals), "Min", "MIN");
+
+        MockERC20 maxDecimals = new MockERC20("Max Decimals", "MAX", 18);
+        vm.prank(alice);
+        registry.createChain(address(maxDecimals), "Max", "MAX");
+    }
+
     // ---------------------------------------------------------------------
     // topUp
     // ---------------------------------------------------------------------

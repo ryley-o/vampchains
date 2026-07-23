@@ -50,6 +50,15 @@ export interface RelayerConfig {
   /// submitting a sweep transaction whose own gas cost would eat most or
   /// all of what it's sweeping. Default 0.01 native units (18-decimal).
   feeSweepDustThresholdWei: bigint;
+  /// How often feeSweep.ts runs, per chain — deliberately much slower than
+  /// pollIntervalMs. A sweep only ever prepares a claim (moves the signer's
+  /// tip balance to the treasury address and lets withdrawalWatcher.ts sign
+  /// a ClaimSwept attestation); actually submitting that claim on the home
+  /// chain is a separate, currently-manual step with no automation or UI
+  /// trigger anywhere in this repo, so there's no one waiting on a sweep to
+  /// happen quickly. Default 1h — sweeping every ~20s prepared claims
+  /// nobody was consuming that often.
+  feeSweepIntervalMs: number;
   /// How often gasContributionWatcher.ts runs — used to power the "blood
   /// given" leaderboard AND (as of the TxActivity extension) scan/'s
   /// native-transaction history, so unlike a pure leaderboard, staleness
@@ -121,6 +130,7 @@ export function loadConfig(): RelayerConfig {
     burnAddress: getAddress(process.env.BURN_ADDRESS ?? "0x12f5B89B02C8107278c5F24E74d7B44267C55d1f"),
     cliqueSignerAddress: getAddress(requireEnv("CLIQUE_SIGNER_ADDRESS")),
     feeSweepDustThresholdWei: BigInt(process.env.FEE_SWEEP_DUST_THRESHOLD_WEI ?? "10000000000000000"),
+    feeSweepIntervalMs: Number(process.env.FEE_SWEEP_INTERVAL_MS ?? 60 * 60 * 1000),
     gasContributionIntervalMs: Number(process.env.GAS_CONTRIBUTION_INTERVAL_MS ?? 30 * 1000),
   };
 }

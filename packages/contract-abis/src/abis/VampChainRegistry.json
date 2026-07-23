@@ -45,6 +45,19 @@
   },
   {
     "type": "function",
+    "name": "MAX_BASE_TOKEN_DECIMALS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_NAME_LEN",
     "inputs": [],
     "outputs": [
@@ -65,6 +78,19 @@
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_BASE_TOKEN_DECIMALS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ],
     "stateMutability": "view"
@@ -882,6 +908,11 @@
   {
     "type": "error",
     "name": "ChainNotFound",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidDecimals",
     "inputs": []
   },
   {
