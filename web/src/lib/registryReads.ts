@@ -89,6 +89,24 @@ export async function getRunwayTreasury(homeChainId: number): Promise<`0x${strin
   }
 }
 
+/// The protocol-treasury address for a home chain's registry — same
+/// "always read live, never duplicated into an env var" reasoning as
+/// getRunwayTreasury. Used by ClaimFeesPanel to decide whether the
+/// connected wallet is one of the three parties the fee split pays out to.
+export async function getProtocolTreasury(homeChainId: number): Promise<`0x${string}` | null> {
+  const cfg = getHomeChainWebConfig(homeChainId);
+  if (!cfg || !cfg.configured) return null;
+  try {
+    return (await getHomePublicClient(homeChainId).readContract({
+      address: cfg.registryAddress,
+      abi: REGISTRY_ABI,
+      functionName: "protocolTreasury",
+    })) as `0x${string}`;
+  } catch {
+    return null;
+  }
+}
+
 export async function getIsActive(homeChainId: number, chainId: bigint): Promise<boolean> {
   const cfg = getHomeChainWebConfig(homeChainId);
   if (!cfg || !cfg.configured) return false;

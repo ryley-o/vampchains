@@ -140,6 +140,13 @@ export default async function HowItWorksPage() {
           This is on top of the annual fee, not instead of it — the fee covers our
           infrastructure; the split is the ongoing reward for growing a chain.
         </p>
+        <p className="text-xs text-bone-dim/40">
+          Want the full mechanics — how the tip and the burn actually get claimed, and when?{" "}
+          <Link href="/how-fees-work" className="underline underline-offset-2 hover:text-bone-dim/70">
+            See how fees work
+          </Link>
+          .
+        </p>
       </Section>
 
       <Section eyebrow="User incentives" title="Using a chain keeps it alive">

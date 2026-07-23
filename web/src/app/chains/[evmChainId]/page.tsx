@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@vampchains/db";
-import { getOnchainChain, getRemainingRuntime, getRunwayTreasury } from "@/lib/registryReads";
-import { getBurnedFeesClaimed } from "@/lib/bridgeReads";
+import { getOnchainChain, getProtocolTreasury, getRemainingRuntime, getRunwayTreasury } from "@/lib/registryReads";
+import { getBurnedFeesClaimed, getOutstandingBurnedFees, getOutstandingSweepClaims } from "@/lib/bridgeReads";
 import { formatTokenAmount, formatUsdc, shortAddress } from "@/lib/format";
 import { GATEWAY_URL, getHomeChainWebConfig } from "@/lib/contracts";
 import { StatusPill } from "@/components/StatusPill";
@@ -16,6 +16,7 @@ import { AddToWalletButton } from "@/components/AddToWalletButton";
 import { BloodDonorsPanel } from "@/components/BloodDonorsPanel";
 import { RunwayCommitmentPanel } from "@/components/RunwayCommitmentPanel";
 import { RunwayMeter } from "@/components/brand/RunwayMeter";
+import { ClaimFeesPanel } from "@/components/ClaimFeesPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -87,13 +88,26 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ev
   const homeConfig = getHomeChainWebConfig(homeChainId);
   const contractsConfigured = !!homeConfig?.configured;
 
-  const [onchain, remainingRuntime, wrappedTokenRows, burnedFeesClaimed, runwayTreasury] = await Promise.all([
-    getOnchainChain(homeChainId, chainId),
-    getRemainingRuntime(homeChainId, chainId),
-    prisma.wrappedToken.findMany({ where: { chainDbId: dbChain.id }, orderBy: { createdAt: "asc" } }),
-    getBurnedFeesClaimed(homeChainId, chainId),
-    getRunwayTreasury(homeChainId),
-  ]);
+  const [onchain, remainingRuntime, wrappedTokenRows, burnedFeesClaimed, runwayTreasury, protocolTreasury] =
+    await Promise.all([
+      getOnchainChain(homeChainId, chainId),
+      getRemainingRuntime(homeChainId, chainId),
+      prisma.wrappedToken.findMany({ where: { chainDbId: dbChain.id }, orderBy: { createdAt: "asc" } }),
+      getBurnedFeesClaimed(homeChainId, chainId),
+      getRunwayTreasury(homeChainId),
+      getProtocolTreasury(homeChainId),
+    ]);
+
+  // Only worth fetching once we know contracts are configured for this
+  // home chain and this specific bridge address is known — ClaimFeesPanel
+  // itself decides visibility client-side, but there's no point computing
+  // this server-side for an unconfigured home chain.
+  const [outstandingBurnedFees, outstandingSweepClaims] = contractsConfigured
+    ? await Promise.all([
+        getOutstandingBurnedFees(homeChainId, chainId, dbChain),
+        getOutstandingSweepClaims(dbChain.id, homeChainId, homeConfig!.bridgeAddress),
+      ])
+    : [null, []];
 
   const wrappedTokens = wrappedTokenRows.map((w) => ({
     l1Token: w.l1Token as `0x${string}`,
@@ -193,6 +207,21 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ev
             </p>
           </div>
         </Panel>
+      )}
+
+      {contractsConfigured && onchain && (
+        <ClaimFeesPanel
+          creator={onchain.creator}
+          protocolTreasury={protocolTreasury}
+          runwayTreasury={runwayTreasury}
+          homeChainId={homeChainId}
+          bridgeAddress={homeConfig!.bridgeAddress}
+          chainId={chainId}
+          baseTokenSymbol={dbChain.baseTokenSymbol}
+          baseTokenDecimals={dbChain.baseTokenDecimals}
+          outstandingBurnedFees={outstandingBurnedFees}
+          outstandingSweepClaims={outstandingSweepClaims}
+        />
       )}
 
       {contractsConfigured && runwayTreasury && (
