@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+/* Same design tokens as web/ — ink/bone/blood/charcoal, kept in sync by
+   hand since this is a separate Next.js app/deploy. See web/src/app/globals.css
+   for the canonical brand-kit source. */
+:root {
+  --color-ink: #090909;
+  --color-ink-raised: #111113;
+  --color-bone: #f7f7f5;
+  --color-bone-dim: #ddd8d1;
+  --color-blood: #e22d3a;
+  --color-blood-bright: #ff4655;
+  --color-blood-deep: #8f1620;
+  --color-charcoal: #202020;
+  --color-charcoal-soft: #161616;
+  --color-hairline: rgba(247, 247, 245, 0.1);
+  --color-hairline-strong: rgba(247, 247, 245, 0.18);
+
+  --font-display: var(--font-geist-sans);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@theme inline {
+  --color-ink: var(--color-ink);
+  --color-ink-raised: var(--color-ink-raised);
+  --color-bone: var(--color-bone);
+  --color-bone-dim: var(--color-bone-dim);
+  --color-blood: var(--color-blood);
+  --color-blood-bright: var(--color-blood-bright);
+  --color-blood-deep: var(--color-blood-deep);
+  --color-charcoal: var(--color-charcoal);
+  --color-charcoal-soft: var(--color-charcoal-soft);
+
+  --color-background: var(--color-ink);
+  --color-foreground: var(--color-bone);
+
+  --font-display: var(--font-display);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-ink);
+  color: var(--color-bone);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+::selection {
+  background: var(--color-blood);
+  color: var(--color-bone);
+}
+
+* {
+  border-color: var(--color-hairline);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-blood-bright);
+  outline-offset: 2px;
+}
+
+.text-display {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 850;
+  letter-spacing: -0.045em;
+  line-height: 0.95;
+}
+
+@keyframes pulse-heartbeat {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.animate-heartbeat {
+  animation: pulse-heartbeat 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

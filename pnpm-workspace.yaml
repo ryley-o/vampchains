@@ -1,5 +1,6 @@
 packages:
   - "web"
+  - "scan"
   - "infra/relayer"
   - "infra/provisioner"
   - "infra/rpc-gateway"

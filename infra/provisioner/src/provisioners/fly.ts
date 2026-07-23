@@ -52,8 +52,13 @@ export class FlyProvisioner implements Provisioner {
       const body = await res.text().catch(() => "");
       throw new Error(`Fly API ${init?.method ?? "GET"} ${path} -> ${res.status}: ${body}`);
     }
-    if (res.status === 204) return undefined as T;
-    return (await res.json()) as T;
+    // Not just 204 — the Fly Machines API's DELETE /apps/:name has been
+    // observed returning a 200/202 with an empty body, which res.json()
+    // chokes on ("Unexpected end of JSON input"). Check the actual body
+    // text rather than trusting the status code to predict emptiness.
+    const text = await res.text();
+    if (text.length === 0) return undefined as T;
+    return JSON.parse(text) as T;
   }
 
   async provision(chain: ChainRow): Promise<ProvisionResult> {

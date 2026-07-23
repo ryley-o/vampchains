@@ -1,10 +1,9 @@
 import { type Address, getAddress } from "viem";
 import { HOME_CHAINS, type HomeChainKey } from "@vampchains/chains";
-import RegistryAbiJson from "./abis/VampChainRegistry.json";
-import BridgeAbiJson from "./abis/VampBridge.json";
+import { VAMP_CHAIN_REGISTRY_ABI, VAMP_BRIDGE_ABI } from "@vampchains/contract-abis";
 
-export const REGISTRY_ABI = RegistryAbiJson;
-export const BRIDGE_ABI = BridgeAbiJson;
+export const REGISTRY_ABI = VAMP_CHAIN_REGISTRY_ABI;
+export const BRIDGE_ABI = VAMP_BRIDGE_ABI;
 
 // A placeholder rather than throwing at import time — every page that
 // actually needs a real deployment renders a clear "not configured yet"

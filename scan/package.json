@@ -1,5 +1,5 @@
 {
-  "name": "@vampchains/web",
+  "name": "@vampchains/scan",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,7 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.62.11",
     "@vampchains/chains": "workspace:*",
     "@vampchains/contract-abis": "workspace:*",
     "@vampchains/db": "workspace:*",
@@ -17,8 +16,7 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "server-only": "^0.0.1",
-    "viem": "^2.21.54",
-    "wagmi": "^2.14.6"
+    "viem": "^2.21.54"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

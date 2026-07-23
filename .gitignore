@@ -6,10 +6,13 @@ npm-debug.log*
 # next.js
 web/.next/
 web/out/
+scan/.next/
+scan/out/
 
 # vercel
 .vercel/
 web/.vercel/
+scan/.vercel/
 
 # env — ignore real env files, but keep the .example templates tracked
 .env

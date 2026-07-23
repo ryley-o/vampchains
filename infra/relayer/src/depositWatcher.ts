@@ -14,9 +14,10 @@ type SigningAccount = ReturnType<typeof privateKeyToAccount>;
 /// vampchain by sending it a real, signed transaction from the treasury
 /// account — no cheat code, this is a real chain. Idempotent: safe to call
 /// repeatedly / after a crash, since progress is tracked both by the
-/// IndexerCursor (which blocks have been scanned, per home chain) and
-/// per-row `mintedAt` (which deposits have actually been minted, i.e.
-/// their mint tx confirmed).
+/// IndexerCursor (which blocks have been scanned, per home chain +
+/// bridge address — see the cursor id below for why the address is part
+/// of it) and per-row `mintedAt` (which deposits have actually been
+/// minted, i.e. their mint tx confirmed).
 export async function pollDeposits(
   l1Client: PublicClient,
   homeChainId: number,
@@ -24,7 +25,13 @@ export async function pollDeposits(
   confirmations: number,
   treasuryAccount: SigningAccount
 ) {
-  const cursorId = `bridge-deposits-${homeChainId}`;
+  // Cursor id includes bridgeAddress, not just homeChainId — a bridge
+  // redeploy must never resume from the old contract's block height (the
+  // home chain's own block count keeps climbing regardless of which
+  // contract we're watching), or deposits made shortly after a redeploy
+  // silently never get scanned. Same bug class as chainWatcher.ts's
+  // pollNewChains, caught live in the same session.
+  const cursorId = `bridge-deposits-${homeChainId}-${bridgeAddress.toLowerCase()}`;
   const latest = await l1Client.getBlockNumber();
   const safeLatest = latest > BigInt(confirmations) ? latest - BigInt(confirmations) : 0n;
 

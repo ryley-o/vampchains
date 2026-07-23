@@ -25,7 +25,10 @@ export async function pollGeneralDeposits(
   confirmations: number,
   treasuryAccount: SigningAccount
 ) {
-  const cursorId = `bridge-deposits-general-${homeChainId}`;
+  // Cursor id includes bridgeAddress, not just homeChainId — same
+  // reasoning as depositWatcher.ts's pollDeposits (a bridge redeploy must
+  // never resume from the old contract's block height).
+  const cursorId = `bridge-deposits-general-${homeChainId}-${bridgeAddress.toLowerCase()}`;
   const latest = await l1Client.getBlockNumber();
   const safeLatest = latest > BigInt(confirmations) ? latest - BigInt(confirmations) : 0n;
 

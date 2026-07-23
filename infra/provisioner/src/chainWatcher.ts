@@ -18,15 +18,22 @@ const MAX_EVM_CHAIN_ID_ATTEMPTS = 10;
 /// Idempotent: a chain already present in the DB (matched by
 /// `[homeChainId, chainId]`, *not* bare `chainId` — see the Chain model's
 /// docstring for why that's never unique on its own) is left untouched
-/// regardless of its status. Cursor id is scoped per home chain since each
-/// one is scanned independently by its own registry address.
+/// regardless of its status. Cursor id includes the registry address, not
+/// just homeChainId — a registry redeploy (new contract, same home chain)
+/// must never resume from the old contract's block height, since blocks on
+/// the home chain keep advancing regardless of which contract we're
+/// watching. Without this, a redeploy silently misses every ChainCreated
+/// event between the old cursor's block and the new contract's own
+/// deployment block, forever (caught live this session: a chain created
+/// right after a registry redeploy sat un-provisioned indefinitely until
+/// the stale cursor was found and manually reset).
 export async function pollNewChains(
   l1Client: PublicClient,
   homeChainId: number,
   registryAddress: Address,
   confirmations: number
 ) {
-  const cursorId = `registry-chains-${homeChainId}`;
+  const cursorId = `registry-chains-${homeChainId}-${registryAddress.toLowerCase()}`;
   const latest = await l1Client.getBlockNumber();
   const safeLatest = latest > BigInt(confirmations) ? latest - BigInt(confirmations) : 0n;
 
