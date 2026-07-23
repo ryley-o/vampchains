@@ -466,6 +466,34 @@ land on the other, which 404s every real verification — confirmed live,
 not hypothetical. Verification isn't on the money-moving path, so trading
 HA for correctness here is the right call.
 
+**Native-currency transaction history for an address** (`TxActivity`) is
+the one thing on `scan/`'s address page that isn't a live RPC call —
+vanilla geth has no "all transactions by address" method, so this needed
+actual indexing rather than a client-side lookup. Rather than stand up a
+dedicated indexer, `infra/relayer`'s existing `gasContributionWatcher`
+(which already walks every active chain's blocks on a slow cadence for the
+"blood given" leaderboard) now also persists one `TxActivity` row per
+transaction it touches anyway — the marginal cost is one extra small
+upsert per tx, not a second full block scan. Only covers activity from
+whenever this started running forward, no historical backfill, shown
+honestly in the UI as a partial history rather than silently incomplete.
+Addresses are checksummed via `getAddress()` at write time (`from`/`to`)
+to match `VerifiedContract.address`'s existing convention — a real bug hit
+live during this build: a URL address typed/pasted in different casing
+than the checksummed DB value silently matched nothing, since Postgres
+string equality is case-sensitive. Fixed by checksumming on both the write
+side and the read side (`scan/`'s address page normalizes once via
+`getAddress()` before every compound-key lookup on that page).
+
+**Chain-scoped search**: the header search bar is context-aware —
+chain name/symbol/evmChainId on the landing page (Postgres-only, per the
+no-fan-out rule above), but once a chain is picked, the same header
+searches an address/tx hash/block number *on that chain* instead
+(`ChainScopedSearchBar`, format-detected: `0x`+40 hex → address, `0x`+64
+hex → tx hash, digits → block number). This needs no indexing at all —
+every one of those is already an exact-match live RPC lookup the
+destination page performs itself; the search bar is pure routing.
+
 ### Data: Neon Postgres + Prisma
 
 Off-chain index of on-chain state for fast reads (`Chain`, `DepositEvent`,

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
-import { ChainSearchBar } from "@/components/ChainSearchBar";
+import { HeaderSearch } from "@/components/HeaderSearch";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,7 +32,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               </span>
             </Link>
             <div className="w-full sm:w-auto sm:flex-1 sm:max-w-md">
-              <ChainSearchBar />
+              <HeaderSearch />
             </div>
           </div>
         </header>

@@ -33,12 +33,23 @@ interface WrappedTokenMeta {
   l1Token: string;
 }
 
+interface TxActivityRow {
+  txHash: string;
+  blockNumber: string;
+  from: string;
+  to: string | null;
+  valueNativeWei: string;
+  status: string;
+  timestamp: string;
+}
+
 export function LiveAddressDetail({
   evmChainId,
   address,
   chainSymbol,
   wrappedTokenMeta,
   isKnownL1TokenWrapped,
+  txActivity,
   verifiedContract,
 }: {
   evmChainId: string;
@@ -46,6 +57,7 @@ export function LiveAddressDetail({
   chainSymbol: string;
   wrappedTokenMeta: WrappedTokenMeta | null;
   isKnownL1TokenWrapped: boolean;
+  txActivity: TxActivityRow[];
   verifiedContract: VerifiedContractMeta | null;
 }) {
   const [balance, setBalance] = useState<bigint | null>(null);
@@ -114,12 +126,74 @@ export function LiveAddressDetail({
         address={address}
       />
 
+      <div className="rounded-2xl border border-hairline bg-ink-raised p-6">
+        <h2 className="text-display text-lg text-bone">Native transactions</h2>
+        <p className="mt-1 text-xs text-bone-dim/40">
+          Only covers activity since indexing started — this isn&apos;t a full history, the same honest
+          limitation as a torn-down chain&apos;s unrecoverable past.
+        </p>
+        {txActivity.length === 0 ? (
+          <p className="mt-4 text-sm text-bone-dim/50">No indexed native transactions found.</p>
+        ) : (
+          <table className="mt-4 w-full text-left text-sm">
+            <thead className="font-mono text-[11px] uppercase tracking-wider text-bone-dim/40">
+              <tr>
+                <th className="pb-2 font-normal">Tx</th>
+                <th className="pb-2 font-normal">Block</th>
+                <th className="pb-2 font-normal">From</th>
+                <th className="pb-2 font-normal">To</th>
+                <th className="pb-2 font-normal">Value</th>
+                <th className="pb-2 font-normal">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {txActivity.map((t) => (
+                <tr key={t.txHash} className="border-t border-hairline">
+                  <td className="py-2.5">
+                    <Link href={`/${evmChainId}/tx/${t.txHash}`} className="font-mono text-xs text-bone hover:text-blood-bright">
+                      {shortHash(t.txHash)}
+                    </Link>
+                  </td>
+                  <td className="py-2.5">
+                    <Link href={`/${evmChainId}/block/${t.blockNumber}`} className="font-mono text-xs text-bone-dim hover:text-blood-bright">
+                      {t.blockNumber}
+                    </Link>
+                  </td>
+                  <td className="py-2.5">
+                    <Link href={`/${evmChainId}/address/${t.from}`} className="font-mono text-xs text-bone-dim hover:text-blood-bright">
+                      {shortAddress(t.from)}
+                    </Link>
+                  </td>
+                  <td className="py-2.5">
+                    {t.to ? (
+                      <Link href={`/${evmChainId}/address/${t.to}`} className="font-mono text-xs text-bone-dim hover:text-blood-bright">
+                        {shortAddress(t.to)}
+                      </Link>
+                    ) : (
+                      <span className="font-mono text-xs text-bone-dim/40">contract creation</span>
+                    )}
+                  </td>
+                  <td className="py-2.5 font-mono text-xs text-bone-dim/70">
+                    {formatEther(BigInt(t.valueNativeWei))} ${chainSymbol}
+                  </td>
+                  <td className="py-2.5">
+                    <span className={`font-mono text-xs ${t.status === "success" ? "text-emerald-300" : "text-blood-bright"}`}>
+                      {t.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
       {recognition.kind !== "eoa" && (
         <div className="rounded-2xl border border-hairline bg-ink-raised p-6">
           <h2 className="text-display text-lg text-bone">ERC20 transfers</h2>
           <p className="mt-1 text-xs text-bone-dim/40">
-            Only ERC20 Transfer events — native-currency transfer history for an address isn&apos;t
-            available yet (vanilla geth has no "all transactions by address" RPC method).
+            Only ERC20 Transfer events — native-currency activity is in the &quot;Native transactions&quot;
+            section above instead.
           </p>
           {!transfers ? (
             <p className="mt-4 text-sm text-bone-dim/50">Loading…</p>

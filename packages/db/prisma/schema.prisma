@@ -103,6 +103,7 @@ model Chain {
   snapshotEntitlements SnapshotEntitlement[]
   gasContributions     GasContribution[]
   verifiedContracts    VerifiedContract[]
+  txActivities         TxActivity[]
 
   @@unique([homeChainId, chainId])
   @@index([status])
@@ -342,6 +343,38 @@ model VerifiedContract {
 
   @@unique([chainDbId, address])
   @@index([chainId])
+}
+
+/// One row per transaction, populated by infra/relayer's existing
+/// gasContributionWatcher (which already walks every active chain's blocks
+/// on a slow cadence for the "blood given" leaderboard) rather than a
+/// dedicated indexer service — closes scan/'s "no native-currency transfer
+/// history for an address" gap (vanilla geth has no "all txs by address"
+/// RPC method) without violating the project's no-separate-indexer
+/// philosophy. Only covers transactions from whenever this started running
+/// forward — no historical backfill — so scan/ shows this honestly as a
+/// partial history, the same way it already does for a torn-down chain's
+/// unrecoverable history.
+model TxActivity {
+  id        Int   @id @default(autoincrement())
+  chain     Chain @relation(fields: [chainDbId], references: [id])
+  chainDbId Int
+  chainId   BigInt
+
+  txHash         String
+  blockNumber    BigInt
+  from           String
+  to             String? // null for contract-creation transactions
+  valueNativeWei String
+  /// First 4 bytes of calldata (0x-prefixed, 10 chars), null for a plain
+  /// value transfer with no calldata.
+  methodSelector String?
+  status         String // viem's TransactionReceipt.status: "success" | "reverted"
+  timestamp      DateTime
+
+  @@unique([chainDbId, txHash])
+  @@index([chainDbId, from])
+  @@index([chainDbId, to])
 }
 
 /// Last processed block per on-chain watcher, so the indexer/relayer can
