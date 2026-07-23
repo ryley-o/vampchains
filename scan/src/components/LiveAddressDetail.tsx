@@ -8,12 +8,21 @@ import { recognizeContract, type ContractRecognition } from "@/lib/contractRecog
 import { GENESIS_CONTRACTS } from "@vampchains/contract-abis";
 import { formatTokenAmount, shortAddress, shortHash, timeAgo } from "@/lib/format";
 import { ContractReadPanel } from "@/components/ContractReadPanel";
+import { ContractWritePanel } from "@/components/ContractWritePanel";
+import { SourceCodeViewer } from "@/components/SourceCodeViewer";
+import type { StandardJsonSources } from "@/lib/standardJsonInput";
 
 interface VerifiedContractMeta {
   contractName: string;
   compilerVersion: string;
   matchType: string;
   abi: unknown[];
+  sources: StandardJsonSources[];
+}
+
+interface CreationTx {
+  txHash: string;
+  blockNumber: string;
 }
 
 const TRANSFER_EVENT = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
@@ -51,6 +60,9 @@ export function LiveAddressDetail({
   isKnownL1TokenWrapped,
   txActivity,
   verifiedContract,
+  creationTx,
+  chainName,
+  gatewayRpcUrl,
 }: {
   evmChainId: string;
   address: `0x${string}`;
@@ -59,9 +71,13 @@ export function LiveAddressDetail({
   isKnownL1TokenWrapped: boolean;
   txActivity: TxActivityRow[];
   verifiedContract: VerifiedContractMeta | null;
+  creationTx: CreationTx | null;
+  chainName: string;
+  gatewayRpcUrl: string;
 }) {
   const [balance, setBalance] = useState<bigint | null>(null);
   const [recognition, setRecognition] = useState<ContractRecognition | null>(null);
+  const [bytecode, setBytecode] = useState<`0x${string}` | null>(null);
   const [transfers, setTransfers] = useState<TransferRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,6 +93,7 @@ export function LiveAddressDetail({
         ]);
         if (cancelled) return;
         setBalance(bal);
+        setBytecode(code ?? null);
         setRecognition(recognizeContract(address, code ?? null));
 
         if (code && code !== "0x") {
@@ -117,6 +134,19 @@ export function LiveAddressDetail({
         </p>
       </div>
 
+      {creationTx && (
+        <p className="text-xs text-bone-dim/50">
+          Created in{" "}
+          <Link href={`/${evmChainId}/tx/${creationTx.txHash}`} className="font-mono text-bone hover:text-blood-bright">
+            {shortHash(creationTx.txHash)}
+          </Link>{" "}
+          at block{" "}
+          <Link href={`/${evmChainId}/block/${creationTx.blockNumber}`} className="font-mono text-bone hover:text-blood-bright">
+            {creationTx.blockNumber}
+          </Link>
+        </p>
+      )}
+
       <RecognitionPanel
         recognition={recognition}
         wrappedTokenMeta={wrappedTokenMeta}
@@ -124,6 +154,10 @@ export function LiveAddressDetail({
         verifiedContract={verifiedContract}
         evmChainId={evmChainId}
         address={address}
+        bytecode={bytecode}
+        chainName={chainName}
+        chainSymbol={chainSymbol}
+        gatewayRpcUrl={gatewayRpcUrl}
       />
 
       <div className="rounded-2xl border border-hairline bg-ink-raised p-6">
@@ -248,6 +282,10 @@ function RecognitionPanel({
   verifiedContract,
   evmChainId,
   address,
+  bytecode,
+  chainName,
+  chainSymbol,
+  gatewayRpcUrl,
 }: {
   recognition: ContractRecognition;
   wrappedTokenMeta: WrappedTokenMeta | null;
@@ -255,6 +293,10 @@ function RecognitionPanel({
   verifiedContract: VerifiedContractMeta | null;
   evmChainId: string;
   address: `0x${string}`;
+  bytecode: `0x${string}` | null;
+  chainName: string;
+  chainSymbol: string;
+  gatewayRpcUrl: string;
 }) {
   if (recognition.kind === "eoa") {
     return <p className="text-sm text-bone-dim/50">This is a wallet address (no contract code).</p>;
@@ -314,9 +356,29 @@ function RecognitionPanel({
           <p className="mt-1 font-mono text-xs text-bone-dim/60">solc {verifiedContract.compilerVersion}</p>
         </div>
         <div className="rounded-2xl border border-hairline bg-ink-raised p-6">
+          <h2 className="text-display text-lg text-bone">Source code</h2>
+          <div className="mt-4">
+            <SourceCodeViewer sources={verifiedContract.sources} />
+          </div>
+        </div>
+        <div className="rounded-2xl border border-hairline bg-ink-raised p-6">
           <h2 className="text-display text-lg text-bone">Read contract</h2>
           <div className="mt-4">
             <ContractReadPanel evmChainId={evmChainId} address={address} abi={verifiedContract.abi} />
+          </div>
+        </div>
+        <div className="rounded-2xl border border-hairline bg-ink-raised p-6">
+          <h2 className="text-display text-lg text-bone">Write contract</h2>
+          <p className="mt-1 text-xs text-bone-dim/40">Connect a browser wallet to send a real transaction.</p>
+          <div className="mt-4">
+            <ContractWritePanel
+              evmChainId={evmChainId}
+              address={address}
+              abi={verifiedContract.abi}
+              chainName={chainName}
+              chainSymbol={chainSymbol}
+              rpcUrl={gatewayRpcUrl}
+            />
           </div>
         </div>
       </div>
@@ -331,6 +393,23 @@ function RecognitionPanel({
           ? "This address is an L1 token that's been bridged here, not the contract deployed on this chain."
           : "No verified source available for this contract yet."}
       </p>
+      {bytecode && <BytecodeToggle bytecode={bytecode} />}
+    </div>
+  );
+}
+
+function BytecodeToggle({ bytecode }: { bytecode: `0x${string}` }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="mt-3">
+      <button onClick={() => setShown((s) => !s)} className="text-xs text-blood underline underline-offset-2 hover:text-blood-bright">
+        {shown ? "Hide bytecode" : "Show bytecode"}
+      </button>
+      {shown && (
+        <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-ink p-4 text-[11px] leading-relaxed text-bone-dim/70">
+          <code className="break-all">{bytecode}</code>
+        </pre>
+      )}
     </div>
   );
 }

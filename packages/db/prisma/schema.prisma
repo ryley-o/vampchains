@@ -371,10 +371,16 @@ model TxActivity {
   methodSelector String?
   status         String // viem's TransactionReceipt.status: "success" | "reverted"
   timestamp      DateTime
+  /// The receipt's `contractAddress` — non-null exactly when `to` is null
+  /// (a contract-creation transaction). Lets a contract's address page
+  /// show "created in tx X" via a direct lookup, something no live RPC call
+  /// can answer on its own.
+  contractAddress String?
 
   @@unique([chainDbId, txHash])
   @@index([chainDbId, from])
   @@index([chainDbId, to])
+  @@index([chainDbId, contractAddress])
 }
 
 /// Last processed block per on-chain watcher, so the indexer/relayer can

@@ -485,14 +485,40 @@ string equality is case-sensitive. Fixed by checksumming on both the write
 side and the read side (`scan/`'s address page normalizes once via
 `getAddress()` before every compound-key lookup on that page).
 
-**Chain-scoped search**: the header search bar is context-aware —
-chain name/symbol/evmChainId on the landing page (Postgres-only, per the
-no-fan-out rule above), but once a chain is picked, the same header
-searches an address/tx hash/block number *on that chain* instead
+**Chain-scoped search**: the header search bar only appears once a chain
+is picked, and searches an address/tx hash/block number *on that chain*
 (`ChainScopedSearchBar`, format-detected: `0x`+40 hex → address, `0x`+64
-hex → tx hash, digits → block number). This needs no indexing at all —
+hex → tx hash, digits → block number) — needs no indexing at all, since
 every one of those is already an exact-match live RPC lookup the
-destination page performs itself; the search bar is pure routing.
+destination page performs itself; the search bar is pure routing. The
+landing page's chain name/symbol/evmChainId search (Postgres-only, per the
+no-fan-out rule above) deliberately does NOT live in the header at all —
+a persistent navbar search reads as "search anything, anywhere," which
+isn't what this app does; it's inline in the landing page's own content
+instead, framed as "search a chain, or pick one below."
+
+**Verified-contract page**: shows the actual submitted source (from
+`VerifiedContract.standardJsonInput.sources`, tabbed if multi-file), an
+ABI-driven read panel (unchanged from Phase 2), and now an ABI-driven
+**write** panel too — plain EIP-1193 (`window.ethereum.request(...)`)
+directly, deliberately not wagmi: `scan/` had zero wallet-connect infra
+before this, and pulling in a full connector stack for "connect + switch
+chain + send one write tx" is a lot of weight for what's still a mostly-
+read app. Same reasoning `web/`'s `AddToWalletButton` already uses — every
+injected wallet speaks `eth_requestAccounts`/`wallet_switchEthereumChain`/
+`wallet_addEthereumChain` the same standard way. A write always switches
+(or adds) the connected wallet to the target vampchain first — submitting
+to the wrong chain isn't left to chance. An **unverified** contract shows
+its raw bytecode behind a "Show bytecode" toggle instead of an ABI, since
+that's genuinely all there is to show.
+
+**A contract's creation transaction** — another thing no single RPC call
+can answer (there's no "get the tx that created this address" method) —
+is answered from the same `TxActivity` table Phase 3 already populates:
+`infra/relayer`'s watcher now also captures the receipt's
+`contractAddress` field (non-null exactly on a creation tx), so a
+contract's own address page can look itself up directly by
+`(chainDbId, contractAddress)`.
 
 ### Data: Neon Postgres + Prisma
 

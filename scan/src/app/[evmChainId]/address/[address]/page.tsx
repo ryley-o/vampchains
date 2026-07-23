@@ -4,6 +4,8 @@ import { getAddress, isAddress } from "viem";
 import { prisma } from "@vampchains/db";
 import { ChainGate } from "@/components/ChainGate";
 import { LiveAddressDetail } from "@/components/LiveAddressDetail";
+import { GATEWAY_URL } from "@/lib/gatewayClient";
+import { extractSources } from "@/lib/standardJsonInput";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +57,13 @@ export default async function AddressDetailPage({
     take: 25,
   });
 
+  // A contract's creation tx has no RPC-level lookup either (same reason
+  // as native tx history above) — answered from the same TxActivity table,
+  // populated by the same watcher.
+  const creationTx = await prisma.txActivity.findFirst({
+    where: { chainDbId: chain.id, contractAddress: address },
+  });
+
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-5 py-14">
       <div>
@@ -88,9 +97,13 @@ export default async function AddressDetailPage({
                   compilerVersion: verifiedContract.compilerVersion,
                   matchType: verifiedContract.matchType,
                   abi: verifiedContract.abi as unknown[],
+                  sources: extractSources(verifiedContract.standardJsonInput),
                 }
               : null
           }
+          creationTx={creationTx ? { txHash: creationTx.txHash, blockNumber: creationTx.blockNumber.toString() } : null}
+          chainName={chain.name}
+          gatewayRpcUrl={`${GATEWAY_URL}/rpc/${evmChainId}`}
         />
       </ChainGate>
     </div>

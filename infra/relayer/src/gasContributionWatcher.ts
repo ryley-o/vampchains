@@ -77,6 +77,7 @@ export async function trackGasContributions(chain: ChainRow) {
           methodSelector: tx.input && tx.input.length >= 10 ? tx.input.slice(0, 10) : null,
           status: receipt.status,
           timestamp: new Date(Number(block.timestamp) * 1000),
+          contractAddress: receipt.contractAddress ? getAddress(receipt.contractAddress) : null,
         },
       });
       txActivityCount++;

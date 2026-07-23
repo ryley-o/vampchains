@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@vampchains/db";
 import { StatusPill } from "@/components/StatusPill";
+import { ChainSearchBar } from "@/components/ChainSearchBar";
 import { shortAddress } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,11 @@ export default async function LandingPage({
         A block explorer covering every vampchain that&apos;s ever existed — read live from each
         chain&apos;s own node, no separate indexer.
       </p>
+
+      <div className="mt-6 max-w-md">
+        <p className="mb-2 text-xs text-bone-dim/40">Search for a chain, or pick one below.</p>
+        <ChainSearchBar />
+      </div>
 
       {q && (
         <p className="mt-6 text-sm text-bone-dim/50">
