@@ -20,4 +20,11 @@ COPY infra/relayer infra/relayer
 WORKDIR /app/packages/db
 RUN pnpm exec prisma generate
 WORKDIR /app/infra/relayer
-CMD ["pnpm", "start"]
+# Compiled to a single JS bundle at image-build time rather than run via
+# `tsx` at runtime — tsx's on-the-fly TS transform spawns extra Node/esbuild
+# child processes (confirmed live: ~65MB of RSS overhead on this app's tiny
+# 256MB machine, on top of the ~73MB the actual work needs), which was the
+# real root cause of a stuck-relayer incident under memory pressure. `dev`
+# still uses `tsx watch` for hot-reload; only this production image builds.
+RUN pnpm run build
+CMD ["node", "dist/index.js"]

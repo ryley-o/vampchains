@@ -314,6 +314,76 @@ Real issues hit deploying this one, worth knowing about:
   binaries.soliditylang.org — any other version is still fetched on
   demand at request time.
 
+### Root-caused: a stuck relayer, traced to `tsx`'s runtime overhead on a tiny machine
+
+`vampchains-relayer` (256MB, shared-cpu-1x — one shared instance for the
+whole protocol, not per-chain) got stuck for 15+ minutes: sustained
+`eth_blockNumber` timeouts to its L1 RPC provider *and* a Prisma
+connection-pool timeout, simultaneously, while the identical calls
+succeeded instantly from elsewhere. A plain `fly machine restart` fixed it
+immediately, which was the first clue it wasn't an app-logic bug — a
+restart doesn't fix broken code, it clears process/OS-level state.
+
+Actually checked `/proc/meminfo` on the machine (freshly restarted): only
+**~4.6MB free out of ~212MB usable**. Checking further, every relayer
+watcher runs via `tsx src/index.ts` — on-the-fly TypeScript execution,
+never a compiled build — and `tsx` spawns **3 extra Node/esbuild
+processes** (a parent loader, a child executor, an esbuild transform
+worker) purely to do that transformation at runtime, on top of the one
+process actually doing the work. Measured: **~138MB of RSS total**, of
+which only ~73MB was the real application. Under that little headroom,
+generalized memory pressure (GC pauses, kernel reclaim) plausibly degrades
+*all* socket I/O uniformly — L1 RPC, Postgres, everything — which matches
+exactly what was observed. `gasContributionIntervalMs` had also just been
+tightened from 24h to 30s earlier the same session, meaningfully
+increasing how often this process does extra work — a plausible trigger
+for tipping an already-razor-thin budget over the edge.
+
+**Fix**: compile to a single JS bundle at Docker build time instead of
+running via `tsx` at runtime (`dev` still uses `tsx watch` for hot-reload;
+only the production image builds) —
+
+```bash
+esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 \
+  --outfile=dist/index.js --external:@prisma/client --external:bufferutil --external:utf-8-validate
+```
+
+then `CMD ["node", "dist/index.js"]` instead of `CMD ["pnpm", "start"]`.
+`@prisma/client` (and the two `ws` optional native deps `viem` can pull in)
+stay external — Prisma's generated client loads a native query-engine
+binary at runtime that bundling would break, and there's no reason to
+bundle a package that's already plain, pre-built JS anyway. Everything
+else — the relayer's own code, plus the small pure-TS workspace packages
+(`@vampchains/db`, `@vampchains/chains`) it imports, which normally have no
+build step at all and are consumed as raw `.ts` via `tsx` everywhere else
+in this repo — bundles inline cleanly.
+
+**One real gotcha hit doing this**: `@prisma/client` had to be added as an
+**explicit, direct** dependency of `infra/relayer/package.json`, even
+though the relayer's own code never imports it directly — only
+`@vampchains/db` does. Under `tsx`, that import resolved fine because
+Node resolves relative to `@vampchains/db`'s *own* location (which
+legitimately declares `@prisma/client`). Once `@vampchains/db`'s code is
+bundled into `infra/relayer/dist/index.js`, that import resolves relative
+to `infra/relayer`'s *own* location instead — and pnpm's strict
+`node_modules` layout doesn't allow phantom access to a sibling package's
+undeclared transitive dependency. The fix is to declare it, honestly,
+where it's actually now used.
+
+**Result, confirmed on real production hardware, not just a local
+guess**: memory usage dropped from ~4.6MB free (post-restart) to
+**~122MB available** on the exact same 256MB machine — no cost increase
+at all. A local Docker test with `docker stats` showed the whole container
+using just 52MB out of a 256MB limit. Only one process now (`node
+dist/index.js`), confirmed via `/proc`. Zero errors of any kind in the
+first 15+ minutes after the redeploy, where the same window had
+previously shown repeated timeouts. `infra/relayer/fly.toml`'s machine
+size was deliberately left at 256MB, not bumped — the whole point was
+confirming this fix alone was sufficient, which it was. Worth applying
+the same compiled-build treatment to `infra/provisioner` and
+`infra/rpc-gateway` if either ever shows similar symptoms, since both run
+the identical `tsx src/index.ts` pattern and would hit the same overhead.
+
 ## Cost notes
 
 Everything above fits comfortably in free/near-free tiers to start: Neon's
