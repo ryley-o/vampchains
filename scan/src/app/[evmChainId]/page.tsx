@@ -41,13 +41,19 @@ export default async function ChainOverviewPage({ params }: { params: Promise<{ 
         <StatusPill status={chain.status} />
       </div>
 
-      <div className="flex gap-4 text-xs">
+      <div className="flex flex-wrap gap-4 text-xs">
         <Link href={`/${evmChainIdParam}/contracts`} className="text-bone-dim/60 hover:text-blood-bright">
           Verified contracts →
         </Link>
         <Link href={`/${evmChainIdParam}/verify`} className="text-bone-dim/60 hover:text-blood-bright">
           Verify a contract →
         </Link>
+        <a
+          href={`https://www.vampchain.com/chains/${evmChainIdParam}`}
+          className="text-bone-dim/60 hover:text-blood-bright"
+        >
+          Manage / bridge on vampchain.com →
+        </a>
       </div>
 
       {live ? (

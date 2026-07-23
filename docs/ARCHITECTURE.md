@@ -528,7 +528,54 @@ is answered from the same `TxActivity` table Phase 3 already populates:
 `infra/relayer`'s watcher now also captures the receipt's
 `contractAddress` field (non-null exactly on a creation tx), so a
 contract's own address page can look itself up directly by
-`(chainDbId, contractAddress)`.
+`(chainDbId, contractAddress)`. Note this never fires for a wrapped-token
+clone specifically — `VampWrappedTokenFactory.mintWrapped` deploys the
+clone via an *internal* CREATE2 inside a regular call to the factory (`to`
+is the factory, not null), and `receipt.contractAddress` is only ever
+populated for a top-level contract-creation transaction. Not a bug, just
+a real limitation of that field — the clone's provenance is already shown
+via its L1 token link instead.
+
+**Two real bugs caught only by actually bridging a token end-to-end**
+(general ERC20 bridging had never been exercised live before this — zero
+`WrappedToken` rows existed in production until this session's trace):
+
+- `contractRecognition.ts`'s EIP-1167 pattern constants were flat wrong.
+  `VampWrappedTokenFactory` deploys via Solady's `LibClone`, which produces
+  a different (shorter, gas-optimized) minimal-proxy bytecode than the
+  canonical EIP-1167 reference template — `363d3d373d3d3d363d73...` vs
+  Solady's actual `3d3d3d3d363d3d37363d73...5af43d3d93803e602a57fd5bf3`.
+  The old constants matched the *canonical* template despite the code's
+  own comment claiming otherwise, so every real wrapped-token clone
+  silently fell through to "unrecognized" forever — confirmed by checking
+  `eth_getCode` against a real deployed clone, not by re-reading the
+  contract source (which gave no reason to doubt the constants at all).
+- The "ERC20 transfers" section queried transfers *where this address is
+  a participant* (`args: {from}`/`{to}`) unconditionally — correct for a
+  wallet, but wrong for a token contract's own page, since a token
+  practically never holds or sends itself. A real wrapped clone with real
+  mint/burn activity showed "No ERC20 transfers found" until this was
+  fixed to query `address: <this address>` (transfers *of* this token)
+  specifically when the address is itself recognized as a wrapped-token
+  clone. Also removed an unrelated gate that hid this whole section for
+  EOAs — a wallet is exactly who most wants to see its own ERC20 history,
+  and "Native transactions" right above it was never gated this way.
+
+Verified live end-to-end on Base Sepolia + a real vampchain: deposited a
+throwaway ERC20 via `depositToken`, watched the relayer mint the wrapped
+clone at its exact predicted CREATE2 address, confirmed the fixed
+recognition/read/write/transfer-history UI all render correctly against
+real data, burned it back via a plain transfer to the treasury address,
+watched the relayer sign a claim, and submitted `claimToken` on Base —
+final balances matched exactly (970/30 split of the original 1000, no
+off-by-one anywhere). Along the way, the relayer's outbound connections
+(to the L1 RPC provider, and separately to Neon) got stuck in a bad state
+for several minutes — sustained `eth_blockNumber` timeouts to Tenderly and
+a Prisma connection-pool timeout, both on this one Fly machine specifically
+while the same calls succeeded instantly from elsewhere. A plain `fly
+machine restart` cleared it immediately. Not root-caused further (no OOM,
+no crash in Fly's event log) — worth trying a restart first if the relayer
+looks stuck again, before assuming a deeper bug.
 
 ### Data: Neon Postgres + Prisma
 

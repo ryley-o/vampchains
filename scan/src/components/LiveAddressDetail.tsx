@@ -6,6 +6,7 @@ import { formatEther, parseAbiItem } from "viem";
 import { getChainClient } from "@/lib/gatewayClient";
 import { recognizeContract, type ContractRecognition } from "@/lib/contractRecognition";
 import { GENESIS_CONTRACTS } from "@vampchains/contract-abis";
+import { getHomeChainById } from "@vampchains/chains";
 import { formatTokenAmount, shortAddress, shortHash, timeAgo } from "@/lib/format";
 import { VerifiedContractTabs } from "@/components/VerifiedContractTabs";
 import type { StandardJsonSources } from "@/lib/standardJsonInput";
@@ -61,6 +62,7 @@ export function LiveAddressDetail({
   creationTx,
   chainName,
   gatewayRpcUrl,
+  homeChainId,
 }: {
   evmChainId: string;
   address: `0x${string}`;
@@ -72,6 +74,7 @@ export function LiveAddressDetail({
   creationTx: CreationTx | null;
   chainName: string;
   gatewayRpcUrl: string;
+  homeChainId: number;
 }) {
   const [balance, setBalance] = useState<bigint | null>(null);
   const [recognition, setRecognition] = useState<ContractRecognition | null>(null);
@@ -92,26 +95,38 @@ export function LiveAddressDetail({
         if (cancelled) return;
         setBalance(bal);
         setBytecode(code ?? null);
-        setRecognition(recognizeContract(address, code ?? null));
+        const rec = recognizeContract(address, code ?? null);
+        setRecognition(rec);
 
-        if (code && code !== "0x") {
-          const [outgoing, incoming] = await Promise.all([
-            client.getLogs({ event: TRANSFER_EVENT, args: { from: address }, fromBlock: 0n, toBlock: "latest" }),
-            client.getLogs({ event: TRANSFER_EVENT, args: { to: address }, fromBlock: 0n, toBlock: "latest" }),
-          ]);
-          if (cancelled) return;
-          const merged = [...outgoing, ...incoming]
-            .map((log) => ({
-              txHash: log.transactionHash!,
-              from: log.args.from!,
-              to: log.args.to!,
-              value: log.args.value!,
-              blockNumber: log.blockNumber!,
-            }))
-            .sort((a, b) => (b.blockNumber > a.blockNumber ? 1 : -1))
-            .slice(0, 25);
-          setTransfers(merged);
-        }
+        // A token contract's own page wants "transfers OF this token" (any
+        // holder), never "transfers where this address is a participant" —
+        // a token practically never holds/sends itself, so the participant
+        // query silently returns nothing for exactly the page where it
+        // matters most (caught live: a real wrapped-token clone with real
+        // mint/burn activity showed "No ERC20 transfers found" until this
+        // was fixed). Every other address — including an EOA, which this
+        // used to skip entirely — still wants the participant query: what
+        // ERC20s has this address sent or received.
+        const logs =
+          rec.kind === "wrapped-token-clone"
+            ? await client.getLogs({ address, event: TRANSFER_EVENT, fromBlock: 0n, toBlock: "latest" })
+            : await Promise.all([
+                client.getLogs({ event: TRANSFER_EVENT, args: { from: address }, fromBlock: 0n, toBlock: "latest" }),
+                client.getLogs({ event: TRANSFER_EVENT, args: { to: address }, fromBlock: 0n, toBlock: "latest" }),
+              ]).then(([outgoing, incoming]) => [...outgoing, ...incoming]);
+
+        if (cancelled) return;
+        const merged = logs
+          .map((log) => ({
+            txHash: log.transactionHash!,
+            from: log.args.from!,
+            to: log.args.to!,
+            value: log.args.value!,
+            blockNumber: log.blockNumber!,
+          }))
+          .sort((a, b) => (b.blockNumber > a.blockNumber ? 1 : -1))
+          .slice(0, 25);
+        setTransfers(merged);
       } catch {
         if (!cancelled) setError("Couldn't reach this chain's node through the gateway.");
       }
@@ -156,6 +171,7 @@ export function LiveAddressDetail({
         chainName={chainName}
         chainSymbol={chainSymbol}
         gatewayRpcUrl={gatewayRpcUrl}
+        homeChainId={homeChainId}
       />
 
       <div className="rounded-2xl border border-hairline bg-ink-raised p-6">
@@ -219,8 +235,7 @@ export function LiveAddressDetail({
         )}
       </div>
 
-      {recognition.kind !== "eoa" && (
-        <div className="rounded-2xl border border-hairline bg-ink-raised p-6">
+      <div className="rounded-2xl border border-hairline bg-ink-raised p-6">
           <h2 className="text-display text-lg text-bone">ERC20 transfers</h2>
           <p className="mt-1 text-xs text-bone-dim/40">
             Only ERC20 Transfer events — native-currency activity is in the &quot;Native transactions&quot;
@@ -266,8 +281,7 @@ export function LiveAddressDetail({
               </tbody>
             </table>
           )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -283,6 +297,7 @@ function RecognitionPanel({
   chainName,
   chainSymbol,
   gatewayRpcUrl,
+  homeChainId,
 }: {
   recognition: ContractRecognition;
   wrappedTokenMeta: WrappedTokenMeta | null;
@@ -294,6 +309,7 @@ function RecognitionPanel({
   chainName: string;
   chainSymbol: string;
   gatewayRpcUrl: string;
+  homeChainId: number;
 }) {
   if (recognition.kind === "eoa") {
     return <p className="text-sm text-bone-dim/50">This is a wallet address (no contract code).</p>;
@@ -303,41 +319,69 @@ function RecognitionPanel({
     const meta =
       recognition.kind === "genesis-factory" ? GENESIS_CONTRACTS.wrappedTokenFactory : GENESIS_CONTRACTS.wrappedTokenImplementation;
     return (
-      <div className="rounded-2xl border border-emerald-800/60 bg-emerald-950/20 p-6">
-        <p className="font-mono text-xs uppercase tracking-wider text-emerald-300">Verified · genesis contract</p>
-        <p className="mt-1 text-sm text-bone">
-          {meta.name}
-          {" "}
-          — baked into every vampchain&apos;s genesis at this exact address. Same bytecode on every chain,
-          forever.
-        </p>
-        <a
-          href={`https://github.com/ryley-o/vampchains/blob/main/contracts/src/${meta.name}.sol`}
-          className="mt-2 inline-block text-xs text-blood underline underline-offset-2 hover:text-blood-bright"
-        >
-          View source →
-        </a>
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-emerald-800/60 bg-emerald-950/20 p-6">
+          <p className="font-mono text-xs uppercase tracking-wider text-emerald-300">Verified · genesis contract</p>
+          <p className="mt-1 text-sm text-bone">
+            {meta.name}
+            {" "}
+            — baked into every vampchain&apos;s genesis at this exact address. Same bytecode on every chain,
+            forever.
+          </p>
+        </div>
+        <VerifiedContractTabs
+          evmChainId={evmChainId}
+          address={address}
+          abi={meta.abi}
+          sources={null}
+          githubUrl={`https://github.com/ryley-o/vampchains/blob/main/contracts/src/${meta.name}.sol`}
+          chainName={chainName}
+          chainSymbol={chainSymbol}
+          gatewayRpcUrl={gatewayRpcUrl}
+        />
       </div>
     );
   }
 
   if (recognition.kind === "wrapped-token-clone") {
+    const homeChain = getHomeChainById(homeChainId);
     return (
-      <div className="rounded-2xl border border-emerald-800/60 bg-emerald-950/20 p-6">
-        <p className="font-mono text-xs uppercase tracking-wider text-emerald-300">Verified · wrapped token clone</p>
-        <p className="mt-1 text-sm text-bone">
-          An EIP-1167 minimal proxy to VampWrappedToken — the standard clone every general-bridged ERC20
-          gets, byte-identical across every vampchain.
-        </p>
-        {wrappedTokenMeta && (
-          <p className="mt-2 font-mono text-xs text-bone-dim/60">
-            {wrappedTokenMeta.name}
-            {" "}($
-            {wrappedTokenMeta.symbol}),{" "}
-            {wrappedTokenMeta.decimals} decimals — wraps L1 token{" "}
-            {shortAddress(wrappedTokenMeta.l1Token)}
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-emerald-800/60 bg-emerald-950/20 p-6">
+          <p className="font-mono text-xs uppercase tracking-wider text-emerald-300">Verified · wrapped token clone</p>
+          <p className="mt-1 text-sm text-bone">
+            An EIP-1167 minimal proxy to VampWrappedToken — the standard clone every general-bridged ERC20
+            gets, byte-identical across every vampchain.
           </p>
-        )}
+          {wrappedTokenMeta && (
+            <p className="mt-2 font-mono text-xs text-bone-dim/60">
+              {wrappedTokenMeta.name}
+              {" "}($
+              {wrappedTokenMeta.symbol}),{" "}
+              {wrappedTokenMeta.decimals} decimals — wraps L1 token{" "}
+              {homeChain ? (
+                <a
+                  href={`${homeChain.blockExplorerUrl}/address/${wrappedTokenMeta.l1Token}`}
+                  className="text-blood underline underline-offset-2 hover:text-blood-bright"
+                >
+                  {shortAddress(wrappedTokenMeta.l1Token)} on {homeChain.name} →
+                </a>
+              ) : (
+                shortAddress(wrappedTokenMeta.l1Token)
+              )}
+            </p>
+          )}
+        </div>
+        <VerifiedContractTabs
+          evmChainId={evmChainId}
+          address={address}
+          abi={GENESIS_CONTRACTS.wrappedTokenImplementation.abi}
+          sources={null}
+          githubUrl="https://github.com/ryley-o/vampchains/blob/main/contracts/src/VampWrappedToken.sol"
+          chainName={chainName}
+          chainSymbol={chainSymbol}
+          gatewayRpcUrl={gatewayRpcUrl}
+        />
       </div>
     );
   }

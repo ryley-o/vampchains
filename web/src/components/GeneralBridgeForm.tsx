@@ -1,12 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { type Address, type Hex, createWalletClient, custom, isAddress, parseUnits } from "viem";
+import { type Address, type Hex, createPublicClient, createWalletClient, custom, formatUnits, http, isAddress, parseUnits } from "viem";
 import { useAccount, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { GENESIS_CONTRACTS } from "@vampchains/contract-abis";
 import { BRIDGE_ABI, BURN_ADDRESS, GATEWAY_URL, requireHomeChainWebConfig } from "@/lib/contracts";
 import { ERC20_ABI } from "@/lib/erc20Abi";
 import { makeVampchainChain } from "@/lib/viemClients";
 import { shortAddress } from "@/lib/format";
+
+function vampscanAddressUrl(evmChainId: bigint, address: Address): string {
+  return `https://scan.vampchain.com/${evmChainId}/address/${address}`;
+}
 
 export interface WrappedTokenInfo {
   l1Token: Address;
@@ -99,6 +104,35 @@ export function GeneralBridgeForm({
     parsedAmount = undefined;
   }
 
+  // The wrapped clone's address is a deterministic CREATE2 prediction — the
+  // factory can answer this before the token has ever been bridged at all,
+  // so this shows exactly what you'll get up front, not after the fact.
+  const [predictedWrapped, setPredictedWrapped] = useState<Address | null>(null);
+  useEffect(() => {
+    if (!token) {
+      setPredictedWrapped(null);
+      return;
+    }
+    let cancelled = false;
+    const client = createPublicClient({ chain: makeVampchainChain(evmChainId, baseTokenSymbol), transport: http(gatewayRpcUrl) });
+    client
+      .readContract({
+        address: GENESIS_CONTRACTS.wrappedTokenFactory.address,
+        abi: GENESIS_CONTRACTS.wrappedTokenFactory.abi,
+        functionName: "wrappedAddressOf",
+        args: [token],
+      })
+      .then((addr) => {
+        if (!cancelled) setPredictedWrapped(addr as Address);
+      })
+      .catch(() => {
+        if (!cancelled) setPredictedWrapped(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, evmChainId, baseTokenSymbol, gatewayRpcUrl]);
+
   const needsApproval = parsedAmount !== undefined && ((allowance as bigint | undefined) ?? 0n) < parsedAmount;
 
   const { writeContract: approve, data: approveHash, isPending: approving } = useWriteContract();
@@ -113,14 +147,52 @@ export function GeneralBridgeForm({
   });
 
   // --- withdrawal: transfer the wrapped token to the treasury on the vampchain, then claim ---
-  const [selectedWrapped, setSelectedWrapped] = useState<Address | "">(wrappedTokens[0]?.wrapped ?? "");
+  // `wrappedTokens` is every token anyone has ever bridged to this chain —
+  // not filtered to what the connected wallet actually holds. Reading real
+  // balances on the vampchain (not Base) and filtering down to nonzero
+  // avoids offering a withdrawal for a token you don't have.
+  const [heldBalances, setHeldBalances] = useState<Record<string, bigint> | null>(null);
+  useEffect(() => {
+    if (!address || wrappedTokens.length === 0) {
+      setHeldBalances(address ? {} : null);
+      return;
+    }
+    let cancelled = false;
+    const client = createPublicClient({ chain: makeVampchainChain(evmChainId, baseTokenSymbol), transport: http(gatewayRpcUrl) });
+    Promise.all(
+      wrappedTokens.map((w) =>
+        client
+          .readContract({ address: w.wrapped, abi: ERC20_ABI, functionName: "balanceOf", args: [address] })
+          .then((bal) => [w.wrapped, bal as bigint] as const)
+          .catch(() => [w.wrapped, 0n] as const)
+      )
+    ).then((entries) => {
+      if (!cancelled) setHeldBalances(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [address, wrappedTokens, evmChainId, baseTokenSymbol, gatewayRpcUrl]);
+
+  const heldWrappedTokens = heldBalances ? wrappedTokens.filter((w) => (heldBalances[w.wrapped] ?? 0n) > 0n) : [];
+
+  const [selectedWrapped, setSelectedWrapped] = useState<Address | "">("");
+  useEffect(() => {
+    if (heldWrappedTokens.length === 0) {
+      setSelectedWrapped("");
+    } else if (!heldWrappedTokens.some((w) => w.wrapped === selectedWrapped)) {
+      setSelectedWrapped(heldWrappedTokens[0].wrapped);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heldWrappedTokens.map((w) => w.wrapped).join(",")]);
+
   const [burnAmount, setBurnAmount] = useState("");
   const [burning, setBurning] = useState(false);
   const [burnError, setBurnError] = useState<string | null>(null);
   const [burnTxHash, setBurnTxHash] = useState<Hex | null>(null);
   const [claim, setClaim] = useState<ClaimStatus | null>(null);
 
-  const selected = wrappedTokens.find((w) => w.wrapped === selectedWrapped);
+  const selected = heldWrappedTokens.find((w) => w.wrapped === selectedWrapped);
 
   const { writeContract: submitClaim, data: claimTxHash, isPending: claiming, error: claimError } = useWriteContract();
   const { isLoading: claimConfirming, isSuccess: claimConfirmed } = useWaitForTransactionReceipt({
@@ -238,6 +310,19 @@ export function GeneralBridgeForm({
           className="mt-3 w-full rounded-xl border border-hairline bg-ink-raised px-3 py-2.5 font-mono text-sm text-bone placeholder:text-bone-dim/30 focus:border-blood/60"
         />
 
+        {predictedWrapped && (
+          <p className="mt-3 text-xs text-bone-dim/50">
+            This will bridge as{" "}
+            <a
+              href={vampscanAddressUrl(evmChainId, predictedWrapped)}
+              className="font-mono text-blood underline underline-offset-2 hover:text-blood-bright"
+            >
+              {shortAddress(predictedWrapped)} on Vampscan →
+            </a>{" "}
+            (deterministic — same address whether or not it&apos;s been deployed yet).
+          </p>
+        )}
+
         {!isConnected ? (
           <p className="mt-4 text-sm text-bone-dim/50">Connect your wallet to bridge.</p>
         ) : !token ? (
@@ -273,33 +358,71 @@ export function GeneralBridgeForm({
           </button>
         )}
         {depositError && <p className="mt-2 text-sm text-blood-bright">{depositError.message}</p>}
-        {depositConfirmed && <p className="mt-2 text-sm text-emerald-300">Deposited — wrapped mint should land shortly.</p>}
+        {depositConfirmed && (
+          <p className="mt-2 text-sm text-emerald-300">
+            Deposited — wrapped mint should land shortly
+            {predictedWrapped && (
+              <>
+                {" "}
+                at{" "}
+                <a
+                  href={vampscanAddressUrl(evmChainId, predictedWrapped)}
+                  className="underline underline-offset-2 hover:text-emerald-200"
+                >
+                  {shortAddress(predictedWrapped)} on Vampscan
+                </a>
+              </>
+            )}
+            .
+          </p>
+        )}
       </div>
 
       <div className="border-t border-hairline pt-8">
         <h3 className="text-display text-lg text-bone">Withdraw a wrapped token</h3>
-        {wrappedTokens.length === 0 ? (
+        {!isConnected ? (
+          <p className="mt-1.5 text-sm text-bone-dim/50">Connect your wallet to see what you can withdraw.</p>
+        ) : wrappedTokens.length === 0 ? (
           <p className="mt-1.5 text-sm text-bone-dim/50">
             No tokens have been general-bridged to this chain yet — deposit one above first.
+          </p>
+        ) : heldBalances === null ? (
+          <p className="mt-1.5 text-sm text-bone-dim/50">Checking your balances on this chain…</p>
+        ) : heldWrappedTokens.length === 0 ? (
+          <p className="mt-1.5 text-sm text-bone-dim/50">
+            {wrappedTokens.length} token{wrappedTokens.length === 1 ? "" : "s"} bridged to this chain by others, but
+            your connected wallet doesn&apos;t hold a balance of any of them.
           </p>
         ) : (
           <>
             <p className="mt-1.5 text-sm text-bone-dim/60">
               Transferring a wrapped token to the treasury address on the vampchain signals a
               withdrawal, exactly like sending native currency there — the relayer sees it and
-              signs a claim you submit yourself on Base.
+              signs a claim you submit yourself on Base. Only tokens you actually hold a balance of
+              on this chain are listed below.
             </p>
             <select
               value={selectedWrapped}
               onChange={(e) => setSelectedWrapped(e.target.value as Address)}
               className="mt-4 w-full rounded-xl border border-hairline bg-ink-raised px-3 py-2.5 text-sm text-bone focus:border-blood/60"
             >
-              {wrappedTokens.map((w) => (
+              {heldWrappedTokens.map((w) => (
                 <option key={w.wrapped} value={w.wrapped}>
-                  {w.symbol} — {shortAddress(w.wrapped)} (from {shortAddress(w.l1Token)})
+                  {w.symbol} — balance {formatUnits(heldBalances[w.wrapped] ?? 0n, w.decimals)} (from{" "}
+                  {shortAddress(w.l1Token)})
                 </option>
               ))}
             </select>
+            {selected && (
+              <p className="mt-2 text-xs text-bone-dim/40">
+                <a
+                  href={vampscanAddressUrl(evmChainId, selected.wrapped)}
+                  className="text-blood underline underline-offset-2 hover:text-blood-bright"
+                >
+                  View {selected.symbol} on Vampscan →
+                </a>
+              </p>
+            )}
 
             {!claim && (
               <div className="mt-3 flex gap-2">

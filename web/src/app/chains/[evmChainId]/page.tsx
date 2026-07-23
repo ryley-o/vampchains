@@ -137,6 +137,12 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ev
               rpcUrl={gatewayRpcUrl}
             />
           )}
+          <a
+            href={`https://scan.vampchain.com/${dbChain.evmChainId}`}
+            className="text-xs text-bone-dim/50 underline underline-offset-2 hover:text-bone-dim"
+          >
+            View on Vampscan →
+          </a>
         </div>
       </div>
 

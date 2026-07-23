@@ -1,12 +1,20 @@
 import { GENESIS_CONTRACTS } from "@vampchains/contract-abis";
 
-const EIP1167_PREFIX = "363d3d373d3d3d363d73";
-const EIP1167_SUFFIX = "5af43d82803e903d91602b57fd5bf3";
+// Solady's LibClone (what VampWrappedTokenFactory actually deploys with)
+// produces a different, gas-optimized minimal-proxy bytecode than the
+// canonical EIP-1167 reference template — these constants previously held
+// the canonical template's prefix/suffix despite this function's own
+// docstring claiming otherwise, so every real wrapped-token clone silently
+// fell through to "unrecognized" instead of ever matching. Caught live by
+// actually bridging a token and checking scan/'s output, not by reading
+// the code: confirmed via `eth_getCode` against a real deployed clone —
+// 0x3d3d3d3d363d3d37363d73<20-byte impl address>5af43d3d93803e602a57fd5bf3.
+const EIP1167_PREFIX = "3d3d3d3d363d3d37363d73";
+const EIP1167_SUFFIX = "5af43d3d93803e602a57fd5bf3";
 
-/// If `bytecode` is a standard EIP-1167 minimal proxy (the exact format
-/// solady's LibClone.cloneDeterministic produces — no PUSH0 variant, which
-/// matters since every vampchain is capped at the London fork), returns the
-/// embedded implementation address it delegates to. Otherwise null.
+/// If `bytecode` is a Solady LibClone minimal proxy (the exact format
+/// VampWrappedTokenFactory deploys with), returns the embedded
+/// implementation address it delegates to. Otherwise null.
 function parseEip1167Implementation(bytecode: `0x${string}`): `0x${string}` | null {
   const code = bytecode.toLowerCase().slice(2);
   if (!code.startsWith(EIP1167_PREFIX) || !code.endsWith(EIP1167_SUFFIX)) return null;

@@ -19,11 +19,20 @@ const TABS: { id: Tab; label: string }[] = [
 /// tabs (with SourceCodeViewer's own per-file picker as the "sub-tab"
 /// layer within Source Code) reads more like a single contract page and
 /// less like three unrelated widgets.
+///
+/// Also reused for the two genesis contracts and every wrapped-token clone
+/// — those don't have a `VerifiedContract` DB row (no community submission
+/// involved, they're recognized for free by bytecode pattern-match), but
+/// their real ABI is baked into `@vampchains/contract-abis` and their
+/// source is a fixed, known file in this repo, so read/write access to
+/// them shouldn't be second-class next to a community-verified contract's.
+/// Pass `githubUrl` instead of `sources` for that case.
 export function VerifiedContractTabs({
   evmChainId,
   address,
   abi,
   sources,
+  githubUrl,
   chainName,
   chainSymbol,
   gatewayRpcUrl,
@@ -31,7 +40,8 @@ export function VerifiedContractTabs({
   evmChainId: string;
   address: `0x${string}`;
   abi: unknown[];
-  sources: StandardJsonSources[];
+  sources: StandardJsonSources[] | null;
+  githubUrl?: string;
   chainName: string;
   chainSymbol: string;
   gatewayRpcUrl: string;
@@ -55,7 +65,16 @@ export function VerifiedContractTabs({
       </div>
 
       <div className="mt-5">
-        {tab === "source" && <SourceCodeViewer sources={sources} />}
+        {tab === "source" &&
+          (sources ? (
+            <SourceCodeViewer sources={sources} />
+          ) : githubUrl ? (
+            <a href={githubUrl} className="text-xs text-blood underline underline-offset-2 hover:text-blood-bright">
+              View source on GitHub →
+            </a>
+          ) : (
+            <p className="text-xs text-bone-dim/40">No source recorded.</p>
+          ))}
         {tab === "read" && <ContractReadPanel evmChainId={evmChainId} address={address} abi={abi} />}
         {tab === "write" && (
           <div>

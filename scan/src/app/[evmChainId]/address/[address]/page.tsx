@@ -104,6 +104,7 @@ export default async function AddressDetailPage({
           creationTx={creationTx ? { txHash: creationTx.txHash, blockNumber: creationTx.blockNumber.toString() } : null}
           chainName={chain.name}
           gatewayRpcUrl={`${GATEWAY_URL}/rpc/${evmChainId}`}
+          homeChainId={chain.homeChainId}
         />
       </ChainGate>
     </div>
