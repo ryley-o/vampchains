@@ -24,7 +24,12 @@ export default function TermsPage() {
       <h2 className="text-display pt-3 text-lg text-bone">Funding &amp; chain lifecycle</h2>
       <p>
         A chain&apos;s funding balance is public and drawn down linearly over time to cover our
-        real infrastructure cost. Anyone can top it up. If a chain&apos;s funding runs out, it
+        real infrastructure cost. Anyone can top it up. Each chain&apos;s annual fee rate is fixed
+        at creation, but we reserve the right to change it later for an already-existing chain —
+        for example if our infrastructure costs shift, or a chain&apos;s on-chain state has grown
+        enough to change what it actually costs to run. Any such change is never retroactive:
+        whatever had already accrued under the old rate is settled first, and the new rate only
+        applies to time from that point forward. If a chain&apos;s funding runs out, it
         doesn&apos;t shut down immediately — it stays fully open (deposits, minting, top-ups, all
         of it) for a one-week grace period, giving anyone a real window to fund it back up before
         anything actually comes down. If nobody does, we take a final snapshot of every real

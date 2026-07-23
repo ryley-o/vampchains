@@ -517,6 +517,112 @@ contract VampChainRegistryTest is Test {
         assertEq(registry.activeChainByToken(address(meme)), 0);
     }
 
+    // ---------------------------------------------------------------------
+    // setChainAnnualFee
+    // ---------------------------------------------------------------------
+
+    function test_setChainAnnualFee_onlyOwner() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.expectRevert();
+        vm.prank(alice);
+        registry.setChainAnnualFee(chainId, ANNUAL_FEE * 2);
+    }
+
+    function test_setChainAnnualFee_revertsOnInactiveChain() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+        vm.warp(block.timestamp + YEAR + registry.GRACE_PERIOD() + 1);
+        registry.deactivateIfGraceExpired(chainId);
+
+        vm.expectRevert(VampChainRegistry.ChainNotActive.selector);
+        vm.prank(owner);
+        registry.setChainAnnualFee(chainId, ANNUAL_FEE * 2);
+    }
+
+    function test_setChainAnnualFee_worksWithNothingAccruedYet() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        // Unlike withdrawEarned, a zero-settlement change is not an error —
+        // there's nothing wrong with adjusting a brand new chain's rate.
+        vm.prank(owner);
+        registry.setChainAnnualFee(chainId, ANNUAL_FEE * 2);
+
+        VampChainRegistry.VampChain memory c = registry.getChain(chainId);
+        assertEq(c.annualFeeUSDC, ANNUAL_FEE * 2);
+        assertEq(c.fundingBalance, ANNUAL_FEE);
+    }
+
+    function test_setChainAnnualFee_settlesAccruedAmountAtOldRateBeforeChanging() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.warp(block.timestamp + YEAR / 4);
+        uint256 expectedSettled = ANNUAL_FEE / 4;
+
+        vm.prank(owner);
+        registry.setChainAnnualFee(chainId, ANNUAL_FEE * 2);
+
+        assertApproxEqAbs(usdc.balanceOf(treasury), expectedSettled, 1);
+
+        VampChainRegistry.VampChain memory c = registry.getChain(chainId);
+        assertApproxEqAbs(c.fundingBalance, ANNUAL_FEE - expectedSettled, 1);
+        assertEq(c.lastAccrualAt, block.timestamp);
+        assertEq(c.annualFeeUSDC, ANNUAL_FEE * 2);
+    }
+
+    /// @notice The core non-retroactivity property: total earned across a
+    /// rate change always matches (old rate × time before) + (new rate ×
+    /// time after) — never one rate applied to the whole elapsed period.
+    /// Halves the rate (rather than raising it) specifically so the
+    /// second period's accrual stays comfortably under the remaining
+    /// `fundingBalance` — a bigger multiplier would hit the "can't earn
+    /// more than what's left" cap and mask the property being tested.
+    function test_setChainAnnualFee_newRateOnlyAppliesGoingForward() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.warp(block.timestamp + YEAR / 4);
+        uint256 earnedBeforeChange = ANNUAL_FEE / 4;
+
+        vm.prank(owner);
+        registry.setChainAnnualFee(chainId, ANNUAL_FEE / 2);
+
+        vm.warp(block.timestamp + YEAR / 4);
+        vm.prank(owner);
+        uint256 earnedAfterChange = registry.withdrawEarned(chainId);
+
+        // A quarter-year at half the original rate, not at the original rate.
+        assertApproxEqAbs(earnedAfterChange, ANNUAL_FEE / 8, 1);
+        assertApproxEqAbs(usdc.balanceOf(treasury), earnedBeforeChange + earnedAfterChange, 2);
+    }
+
+    function test_setChainAnnualFee_emitsEvent() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
+
+        vm.warp(block.timestamp + YEAR / 4);
+
+        vm.expectEmit(true, true, true, true);
+        emit VampChainRegistry.ChainAnnualFeeUpdated(chainId, ANNUAL_FEE, ANNUAL_FEE * 2, ANNUAL_FEE / 4);
+        vm.prank(owner);
+        registry.setChainAnnualFee(chainId, ANNUAL_FEE * 2);
+    }
+
+    function test_setChainAnnualFee_revertsOnUnknownChain() public {
+        vm.expectRevert(VampChainRegistry.ChainNotFound.selector);
+        vm.prank(owner);
+        registry.setChainAnnualFee(42, ANNUAL_FEE);
+    }
+
     function test_deactivateIfGraceExpired_permissionless() public {
         MockERC20 meme = _memeToken();
         vm.prank(alice);

@@ -94,15 +94,22 @@ export default async function HowItWorksPage() {
         <p>
           Pick any existing ERC20 on Base, Ethereum, or Robinhood Chain. Pay the annual fee —
           currently <span className="font-mono text-bone">${formatUsdc(defaultAnnualFee)}</span>{" "}
-          in USDC on every chain, though each one&apos;s fee is set independently and can change —
-          and we spin up a single-node EVM chain that runs on your token as gas. It&apos;s real:
-          real RPC, real blocks, real transactions, usually live well under a minute after
-          payment. The fee never changes retroactively for a chain that already exists.
+          in USDC — and we spin up a single-node EVM chain that runs on your token as gas.
+          It&apos;s real: real RPC, real blocks, real transactions, usually live well under a
+          minute after payment.
         </p>
         <p>
           The fee drains linearly over the year, and it&apos;s fully public — anyone can top up a
-          chain&apos;s runway, not just its creator. Nobody, including us, can ever charge for time
-          not yet served.
+          chain&apos;s runway, not just its creator. Nobody, including us, can charge for time not
+          yet served.
+        </p>
+        <p className="text-xs text-bone-dim/40">
+          Exact fee mechanics — including the rare cases where we&apos;d adjust an existing
+          chain&apos;s rate — are in the{" "}
+          <Link href="/terms" className="underline underline-offset-2 hover:text-bone-dim/70">
+            terms
+          </Link>
+          .
         </p>
       </Section>
 

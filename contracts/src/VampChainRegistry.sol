@@ -111,6 +111,7 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
     event FeeWithdrawn(uint256 indexed chainId, uint256 amount, uint256 remainingBalance);
     event ChainDeactivated(uint256 indexed chainId, uint256 timestamp);
     event DefaultAnnualFeeUpdated(uint256 oldFee, uint256 newFee);
+    event ChainAnnualFeeUpdated(uint256 indexed chainId, uint256 oldFee, uint256 newFee, uint256 settledAmount);
     event ProtocolTreasuryUpdated(address oldTreasury, address newTreasury);
     event RunwayTreasuryUpdated(address oldTreasury, address newTreasury);
 
@@ -208,14 +209,46 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
     /// every call rather than trusting a stored flag.
     function withdrawEarned(uint256 chainId) external onlyOwner nonReentrant returns (uint256 amount) {
         VampChain storage c = _chainOrRevert(chainId);
-        amount = _earned(c);
+        amount = _settleAccrual(c);
         if (amount == 0) revert NothingToWithdraw();
-
-        c.fundingBalance -= amount.toUint128();
-        c.lastAccrualAt = uint64(block.timestamp);
-
-        usdc.safeTransfer(protocolTreasury, amount);
         emit FeeWithdrawn(chainId, amount, c.fundingBalance);
+    }
+
+    /// @notice Owner-only: change an existing chain's annual fee going
+    /// forward — e.g. infrastructure costs shift, or a chain's on-chain
+    /// state has grown enough to change what it actually costs to run.
+    /// Never retroactive: whatever's already accrued under the *old* rate
+    /// is settled and paid out first (the exact same accounting
+    /// `withdrawEarned` does), the accrual checkpoint resets to now, and
+    /// only elapsed time from this point forward is charged at the new
+    /// rate. `settledAmount` in the emitted event is always the exact
+    /// pre-change amount realized, so a rate change is auditable, not just
+    /// asserted.
+    function setChainAnnualFee(uint256 chainId, uint256 newAnnualFeeUSDC) external onlyOwner nonReentrant {
+        VampChain storage c = _chainOrRevert(chainId);
+        if (!c.active) revert ChainNotActive();
+
+        uint256 settled = _settleAccrual(c);
+        uint256 oldFee = c.annualFeeUSDC;
+        c.annualFeeUSDC = newAnnualFeeUSDC.toUint128();
+
+        emit ChainAnnualFeeUpdated(chainId, oldFee, newAnnualFeeUSDC, settled);
+    }
+
+    /// @notice Realizes whatever's accrued since `lastAccrualAt` under the
+    /// *current* rate — reduces `fundingBalance` and pays it to the
+    /// protocol treasury, then resets the checkpoint to now. Shared by
+    /// `withdrawEarned` and `setChainAnnualFee`: both need the exact same
+    /// "settle what's owed under the old terms before anything changes"
+    /// step, which is precisely what makes a later rate change provably
+    /// non-retroactive rather than merely described as such.
+    function _settleAccrual(VampChain storage c) internal returns (uint256 settled) {
+        settled = _earned(c);
+        if (settled > 0) {
+            c.fundingBalance -= settled.toUint128();
+            usdc.safeTransfer(protocolTreasury, settled);
+        }
+        c.lastAccrualAt = uint64(block.timestamp);
     }
 
     /// @notice Permissionless: flips a chain's `active` flag off once its
