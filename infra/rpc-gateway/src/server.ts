@@ -98,9 +98,9 @@ export function createGatewayServer(config: GatewayConfig) {
           // to claim()/claimToken() as normal. FEE_SWEEP means this is
           // protocol-swept fee revenue: submit the same fields to
           // claimSwept() instead (no `token` path exists for this kind),
-          // which ignores `to` and splits 50/50 between the protocol
-          // treasury and the chain's creator on-chain — see
-          // docs/ARCHITECTURE.md "Protocol fee revenue".
+          // which ignores `to` and splits three ways between the protocol
+          // treasury, the chain's creator, and the runway treasury
+          // on-chain — see docs/ARCHITECTURE.md "Protocol fee revenue".
           kind: withdrawal.kind,
           to: withdrawal.to,
           amount: withdrawal.amount,
@@ -139,8 +139,9 @@ export function createGatewayServer(config: GatewayConfig) {
           // `asOfBlock`, in the base token's own raw decimal units — submit
           // together with `signature` to VampBridge.claimBurnedFees(), which
           // only ever pays out the increment over what's already been
-          // claimed and splits it 50/50 with the chain's creator. See
-          // docs/ARCHITECTURE.md "Protocol fee revenue".
+          // claimed and splits it three ways with the chain's creator and
+          // the runway treasury. See docs/ARCHITECTURE.md "Protocol fee
+          // revenue".
           cumulativeBurned: chain.cumulativeBaseFeeBurned,
           asOfBlock: chain.baseFeeScanBlock.toString(),
           signature: chain.baseFeeAttestationSignature,

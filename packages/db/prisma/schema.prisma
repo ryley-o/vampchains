@@ -36,8 +36,9 @@ enum FundingEventKind {
 enum WithdrawalKind {
   USER // a real user's own withdrawal (VampBridge.claim/claimToken)
   FEE_SWEEP // protocol-swept tip revenue from the shared Clique signer
-  // address, split 50/50 with the chain's creator (VampBridge.claimSwept)
-  // — see docs/ARCHITECTURE.md "Protocol fee revenue".
+  // address, split three ways with the chain's creator and the runway
+  // treasury (VampBridge.claimSwept) — see docs/ARCHITECTURE.md "Protocol
+  // fee revenue".
 }
 
 /// One row per vampchain, keyed by the registry's on-chain chainId.
@@ -199,9 +200,9 @@ model WithdrawalEvent {
   /// Clique signer/etherbase address (swept tip revenue) and is signed for
   /// `claimSwept` instead — see withdrawalWatcher.ts and
   /// docs/ARCHITECTURE.md "Protocol fee revenue". `to` is meaningless for a
-  /// FEE_SWEEP row (claimSwept ignores it and splits 50/50 on-chain
-  /// instead); kept populated anyway since it's just whatever address the
-  /// sweep burn happened to come from.
+  /// FEE_SWEEP row (claimSwept ignores it and splits three ways on-chain
+  /// instead — protocol/creator/runway treasury); kept populated anyway
+  /// since it's just whatever address the sweep burn happened to come from.
   kind WithdrawalKind @default(USER)
 
   signature String? // EIP-712 claim signature, set once the relayer has signed

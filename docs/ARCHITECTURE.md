@@ -197,6 +197,79 @@ exercised directly in `contracts/test/VampBridge.t.sol` (wrong signer,
 every field tampered independently, cross-contract replay, cross-chain
 replay, replay via `claimed`).
 
+#### Protocol fee revenue
+
+Every vampchain generates two genuinely different kinds of gas revenue, and
+they're claimed through two different mechanisms — worth being precise
+about which is which, since the code and the UI both distinguish them
+explicitly (`WithdrawalEvent.kind`, `VampBridge.claimSwept` vs.
+`claimBurnedFees`).
+
+**Swept (tip) revenue.** Every transaction on a vampchain pays a priority
+fee ("tip") on top of the base fee, and that tip accrues as real native
+currency at the chain's shared Clique signer/etherbase address (the same
+address that mines every block). `infra/relayer/src/feeSweep.ts` watches
+each active chain's signer balance and, once it clears a dust threshold,
+submits a real `eth_sendTransaction` moving that balance from the signer to
+the burn/treasury address — a genuine, distinct sidechain transaction with
+its own hash. `withdrawalWatcher.ts` recognizes a burn *from* the signer
+address as swept revenue rather than a user withdrawal, and signs a
+`ClaimSwept` attestation for it instead of a plain `Claim`. Each sweep gets
+its own signature, redeemable independently — there is no bundling.
+
+**Burned-fee revenue.** EIP-1559's base fee is a different thing entirely:
+it's destroyed outright by the EVM itself as part of normal gas payment,
+never sitting in any address to sweep. `infra/relayer/src/baseFeeWatcher.ts`
+instead walks block headers and keeps an exact running total of
+`baseFeePerGas * gasUsed` in native wei
+(`Chain.cumulativeBaseFeeBurnedNativeWei`), re-signing a fresh
+`BurnedFees(vampChainId, cumulativeBurned, asOfBlock)` attestation of the
+current total whenever it changes. This is provably safe to pay out even
+though nothing ever "moved": every vampchain's native currency supply is
+minted 1:1 against `VampBridge.lockedBalance[chainId]` on the home chain,
+and base-fee burn is the only thing that ever destroys that supply
+sidechain-side — so `lockedBalance` ends up exceeding real circulating
+supply by exactly the cumulative burn total, and withdrawing exactly that
+amount (never more) leaves every real holder still fully backed.
+
+**The claim, once submitted, splits three ways** — `VampBridge.claimSwept`
+and `VampBridge.claimBurnedFees` both funnel through the same internal
+`_payProtocolAndCreator` helper: the chain's creator and the protocol
+treasury each get `amount / 3` (floored), and a third, separate **runway
+treasury** wallet absorbs the remainder (0–2 wei from rounding, plus its
+intended full third) — earmarked specifically for keeping chains funded,
+since the users generating this revenue are the ones with the most to lose
+if a chain runs out of runway and gets torn down. None of the three
+addresses is ever caller-supplied; all three are read live from the
+registry (`protocolTreasury()`, `runwayTreasury()`, `getChain(chainId).creator`)
+every time. **This is deliberate and structural, not incidental**: even a
+fully compromised relayer signer key can only ever redirect this revenue
+between these three fixed parties, never to an arbitrary address, and
+since neither function accepts a `to` parameter, it doesn't matter who
+actually submits the transaction — anyone can call `claimSwept`/
+`claimBurnedFees` (most naturally the chain's creator, or an admin script),
+and the payout always lands correctly split. No party can block, redirect,
+or front-run another party out of their share.
+
+**Replay safety is structural on both paths, not a matter of submitting
+things in the right order.** `claimSwept` shares the same `claimed`
+mapping (keyed by `sidechainTxHash`) that `claim`/`claimToken` use — each
+real sweep transaction has a unique hash, so resubmitting an already-used
+signature reverts `AlreadyClaimed()` unconditionally. `claimBurnedFees` has
+no transaction to key off of, so instead it's monotonic: `burnedFeesClaimed[chainId]`
+tracks what's already been paid, and a submission must show a strictly
+larger cumulative total or it reverts `NothingToClaim()` as a harmless
+no-op — it's structurally impossible to double-pay by resubmitting a
+stale attestation, no matter how many old signatures exist or in what
+order they're submitted.
+
+Currently there is no automated or UI-driven submission of either claim —
+the relayer only ever *prepares* signed claims (served via
+`infra/rpc-gateway`'s `/claims/:sidechainTxHash` and `/fees/:evmChainId`);
+someone still has to actually call `claimSwept`/`claimBurnedFees` with that
+signature. See `web/src/components/ClaimFeesPanel.tsx` for the (buried,
+wallet-gated-for-discoverability-only) UI that does this.
+
 #### General ERC20 bridging
 
 `deposit`/`claim` are exclusively for a chain's own designated base token,

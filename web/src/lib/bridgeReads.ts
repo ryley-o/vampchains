@@ -3,8 +3,8 @@ import { getHomePublicClient } from "./viemClients";
 import { BRIDGE_ABI, getHomeChainWebConfig } from "./contracts";
 
 /// Cumulative base-fee revenue this chain has already recaptured and split
-/// 50/50 between its creator and the protocol treasury (see
-/// VampBridge.claimBurnedFees / docs/ARCHITECTURE.md "Protocol fee
+/// three ways between its creator, the protocol treasury, and the runway
+/// treasury (see VampBridge.claimBurnedFees / docs/ARCHITECTURE.md "Protocol fee
 /// revenue"). In the base token's own raw decimal units — format with
 /// `formatTokenAmount(amount, baseTokenDecimals)`. This is a live, honest
 /// floor on what a chain has actually earned so far — it doesn't include

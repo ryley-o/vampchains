@@ -20,9 +20,9 @@ type SigningAccount = ReturnType<typeof privateKeyToAccount>;
 /// user withdrawal — see feeSweep.ts, which is what actually produces these
 /// burns (an admin-triggered `eth_sendTransaction` against the vampchain's
 /// own unlocked signer account). Those get a `ClaimSwept` attestation
-/// instead of a plain `Claim`, split 50/50 between the protocol treasury
-/// and the chain's creator on-chain — see docs/ARCHITECTURE.md "Protocol
-/// fee revenue".
+/// instead of a plain `Claim`, split three ways between the protocol
+/// treasury, the chain's creator, and the runway treasury on-chain — see
+/// docs/ARCHITECTURE.md "Protocol fee revenue".
 ///
 /// Runs even against a chain the registry has since marked inactive —
 /// claim() intentionally doesn't check chain-active status, see

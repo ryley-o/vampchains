@@ -60,8 +60,9 @@ const CLAIM_TOKEN_TYPES = {
 } as const;
 
 /// Must match VampBridge.sol's CLAIM_SWEPT_TYPEHASH exactly. No `to` field —
-/// claimSwept() always splits 50/50 between the protocol treasury and the
-/// chain's creator, both read live from the registry, never caller-supplied.
+/// claimSwept() always splits three ways between the protocol treasury, the
+/// chain's creator, and the runway treasury, all read live from the
+/// registry, never caller-supplied.
 const CLAIM_SWEPT_TYPES = {
   ClaimSwept: [
     { name: "vampChainId", type: "uint256" },

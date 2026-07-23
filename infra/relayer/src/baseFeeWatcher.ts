@@ -10,11 +10,12 @@ type SigningAccount = ReturnType<typeof privateKeyToAccount>;
 
 /// Walks a vampchain's block headers to track cumulative EIP-1559 base-fee
 /// burn (`baseFeePerGas * gasUsed`, summed block by block) — the accounting
-/// the protocol claims against via VampBridge.claimBurnedFees, split 50/50
-/// with the chain's creator. See docs/ARCHITECTURE.md "Protocol fee
-/// revenue" for why this is a real, exact L1-side surplus rather than an
-/// approximation: base fee is the only thing that ever destroys a
-/// vampchain's native currency supply, so `lockedBalance` on L1 ends up
+/// the protocol claims against via VampBridge.claimBurnedFees, split three
+/// ways with the chain's creator and the runway treasury. See
+/// docs/ARCHITECTURE.md "Protocol fee revenue" for why this is a real, exact
+/// L1-side surplus rather than an approximation: base fee is the only thing
+/// that ever destroys a vampchain's native currency supply, so
+/// `lockedBalance` on L1 ends up
 /// exceeding real circulating supply by exactly this cumulative total.
 ///
 /// Keeps the exact running total in native 18-decimal wei
