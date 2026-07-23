@@ -44,5 +44,12 @@ COPY infra/verifier infra/verifier
 WORKDIR /app/packages/db
 RUN pnpm exec prisma generate
 WORKDIR /app/infra/verifier
+# Compiled to a single JS bundle at image-build time rather than run via
+# `tsx` at runtime — see infra/relayer/Dockerfile's comment / docs/DEPLOYMENT.md
+# for why (tsx's extra Node/esbuild child processes were the real root
+# cause of a stuck-relayer incident on a tiny Fly machine). `forge` itself
+# is still a real subprocess at request time (src/compile.ts) — unaffected,
+# this only changes how this service's own TS entrypoint runs.
+RUN pnpm run build
 EXPOSE 8080
-CMD ["pnpm", "start"]
+CMD ["node", "dist/index.js"]

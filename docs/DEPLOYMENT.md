@@ -314,7 +314,7 @@ Real issues hit deploying this one, worth knowing about:
   binaries.soliditylang.org — any other version is still fetched on
   demand at request time.
 
-### Root-caused: a stuck relayer, traced to `tsx`'s runtime overhead on a tiny machine
+### Root-caused a stuck relayer, then applied the fix to every `tsx`-based service
 
 `vampchains-relayer` (256MB, shared-cpu-1x — one shared instance for the
 whole protocol, not per-chain) got stuck for 15+ minutes: sustained
@@ -370,19 +370,37 @@ to `infra/relayer`'s *own* location instead — and pnpm's strict
 undeclared transitive dependency. The fix is to declare it, honestly,
 where it's actually now used.
 
-**Result, confirmed on real production hardware, not just a local
-guess**: memory usage dropped from ~4.6MB free (post-restart) to
-**~122MB available** on the exact same 256MB machine — no cost increase
+**Result on `infra/relayer`, confirmed on real production hardware, not
+just a local guess**: memory usage dropped from ~4.6MB free (post-restart)
+to **~122MB available** on the exact same 256MB machine — no cost increase
 at all. A local Docker test with `docker stats` showed the whole container
 using just 52MB out of a 256MB limit. Only one process now (`node
 dist/index.js`), confirmed via `/proc`. Zero errors of any kind in the
 first 15+ minutes after the redeploy, where the same window had
 previously shown repeated timeouts. `infra/relayer/fly.toml`'s machine
 size was deliberately left at 256MB, not bumped — the whole point was
-confirming this fix alone was sufficient, which it was. Worth applying
-the same compiled-build treatment to `infra/provisioner` and
-`infra/rpc-gateway` if either ever shows similar symptoms, since both run
-the identical `tsx src/index.ts` pattern and would hit the same overhead.
+confirming this fix alone was sufficient, which it was.
+
+**Same day: applied the identical fix to every other `tsx`-based service**
+(`infra/provisioner`, `infra/rpc-gateway`, `infra/verifier`) rather than
+waiting for each to hit its own version of this incident — all four
+services in `infra/` share the exact same dependency shape (workspace
+packages + viem, `@prisma/client` only ever reached transitively through
+`@vampchains/db`), so the same `esbuild` bundle command, the same
+`@prisma/client`-as-explicit-dependency fix, and the same Dockerfile
+change (`RUN pnpm run build` + `CMD ["node", "dist/index.js"]`) applied
+cleanly to each with no per-service surprises. Verified each on real
+production hardware after deploying: exactly one `node` process on every
+one (confirmed via `/proc`, zero stray `tsx`/`esbuild` processes),
+`MemAvailable` at 52-73% of each machine's total afterward (was ~2% free
+on `infra/relayer` before its fix). `infra/verifier` — the one with real
+functional complexity, since it shells out to actual `forge build` at
+request time — was verified with a full live `forge verify-contract` run
+end to end (submit → poll → "Pass - Verified (full match)") against the
+newly-compiled build, confirming the bundling change didn't disturb its
+subprocess-based compile path at all. None of the four machines' `fly.toml`
+sizes were changed — this was purely a "stop wasting memory on tooling
+overhead" fix, not a capacity increase.
 
 ## Cost notes
 

@@ -10,6 +10,9 @@ importers:
 
   infra/provisioner:
     dependencies:
+      '@prisma/client':
+        specifier: ^6.2.1
+        version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
       '@vampchains/chains':
         specifier: workspace:*
         version: link:../../packages/chains
@@ -23,6 +26,9 @@ importers:
       '@types/node':
         specifier: ^22.10.5
         version: 22.20.1
+      esbuild:
+        specifier: ^0.24.2
+        version: 0.24.2
       tsx:
         specifier: ^4.19.2
         version: 4.23.1
@@ -60,6 +66,9 @@ importers:
 
   infra/rpc-gateway:
     dependencies:
+      '@prisma/client':
+        specifier: ^6.2.1
+        version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
       '@vampchains/chains':
         specifier: workspace:*
         version: link:../../packages/chains
@@ -73,6 +82,9 @@ importers:
       '@types/node':
         specifier: ^22.10.5
         version: 22.20.1
+      esbuild:
+        specifier: ^0.24.2
+        version: 0.24.2
       tsx:
         specifier: ^4.19.2
         version: 4.23.1
@@ -82,6 +94,9 @@ importers:
 
   infra/verifier:
     dependencies:
+      '@prisma/client':
+        specifier: ^6.2.1
+        version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
       '@vampchains/chains':
         specifier: workspace:*
         version: link:../../packages/chains
@@ -101,6 +116,9 @@ importers:
       '@types/node':
         specifier: ^22.10.5
         version: 22.20.1
+      esbuild:
+        specifier: ^0.24.2
+        version: 0.24.2
       tsx:
         specifier: ^4.19.2
         version: 4.23.1

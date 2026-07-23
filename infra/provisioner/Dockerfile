@@ -23,4 +23,9 @@ COPY infra/provisioner infra/provisioner
 WORKDIR /app/packages/db
 RUN pnpm exec prisma generate
 WORKDIR /app/infra/provisioner
-CMD ["pnpm", "start"]
+# Compiled to a single JS bundle at image-build time rather than run via
+# `tsx` at runtime — see infra/relayer/Dockerfile's comment / docs/DEPLOYMENT.md
+# for why (tsx's extra Node/esbuild child processes were the real root
+# cause of a stuck-relayer incident on a tiny Fly machine).
+RUN pnpm run build
+CMD ["node", "dist/index.js"]
