@@ -78,9 +78,9 @@ async function handleGeneralDeposit(
   });
   if (existing?.mintedAt) return;
 
-  // Scoped by [homeChainId, chainId] — see depositWatcher.ts's identical fix.
-  const chain = await prisma.chain.findUnique({ where: { homeChainId_chainId: { homeChainId, chainId } } });
-  if (!chain || !chain.rpcUrl || chain.status !== "ACTIVE") {
+  // Scoped by [homeChainId, chainId, status: ACTIVE] — see depositWatcher.ts's identical fix.
+  const chain = await prisma.chain.findFirst({ where: { homeChainId, chainId, status: "ACTIVE" } });
+  if (!chain || !chain.rpcUrl) {
     console.warn(
       `[general-deposits] chain ${chainId} on home chain ${homeChainId} not active/provisioned yet, will retry mint for tx ${txHash} later`
     );

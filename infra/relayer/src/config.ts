@@ -56,8 +56,12 @@ export interface RelayerConfig {
   /// a ClaimSwept attestation); actually submitting that claim on the home
   /// chain is a separate, currently-manual step with no automation or UI
   /// trigger anywhere in this repo, so there's no one waiting on a sweep to
-  /// happen quickly. Default 1h — sweeping every ~20s prepared claims
-  /// nobody was consuming that often.
+  /// happen quickly. Default 24h: each sweep is a real, distinct on-chain
+  /// burn transaction that produces its own individually-claimable
+  /// ClaimSwept signature (unlike claimBurnedFees' single re-signed running
+  /// total) — a shorter interval means more individual outstanding
+  /// signatures piling up for whoever eventually claims them, for no
+  /// latency benefit anyone is waiting on.
   feeSweepIntervalMs: number;
   /// How often gasContributionWatcher.ts runs — used to power the "blood
   /// given" leaderboard AND (as of the TxActivity extension) scan/'s
@@ -122,7 +126,14 @@ export function loadConfig(): RelayerConfig {
   return {
     homeChains: loadHomeChains(),
     treasuryPrivateKey,
-    pollIntervalMs: Number(process.env.POLL_INTERVAL_MS ?? 4000),
+    // Every vampchain is single-signer Clique mining a fixed ~12s period
+    // (infra/sidechain-node's CLIQUE_PERIOD), so polling faster than that
+    // buys nothing — most ticks would just confirm no new block exists yet.
+    // 20s (already the deployed value via the POLL_INTERVAL_MS Fly secret,
+    // matched here so an unconfigured/local instance doesn't default to
+    // something needlessly more aggressive than what's proven in prod) sits
+    // comfortably above that floor.
+    pollIntervalMs: Number(process.env.POLL_INTERVAL_MS ?? 20000),
     // The withdrawal-signal address on every vampchain: sending native
     // currency here signals "I want to withdraw." Deliberately the same
     // treasury account minting spends from, not a real dead address — see
@@ -130,7 +141,7 @@ export function loadConfig(): RelayerConfig {
     burnAddress: getAddress(process.env.BURN_ADDRESS ?? "0x12f5B89B02C8107278c5F24E74d7B44267C55d1f"),
     cliqueSignerAddress: getAddress(requireEnv("CLIQUE_SIGNER_ADDRESS")),
     feeSweepDustThresholdWei: BigInt(process.env.FEE_SWEEP_DUST_THRESHOLD_WEI ?? "10000000000000000"),
-    feeSweepIntervalMs: Number(process.env.FEE_SWEEP_INTERVAL_MS ?? 60 * 60 * 1000),
+    feeSweepIntervalMs: Number(process.env.FEE_SWEEP_INTERVAL_MS ?? 24 * 60 * 60 * 1000),
     gasContributionIntervalMs: Number(process.env.GAS_CONTRIBUTION_INTERVAL_MS ?? 30 * 1000),
   };
 }

@@ -82,11 +82,16 @@ async function handleDeposit(
   });
   if (existing?.mintedAt) return;
 
-  // Scoped by [homeChainId, chainId], never bare chainId — the registry's
-  // own chainId is only unique *within* a home chain (each home chain's
-  // registry independently counts from 1), see the Chain model's docstring.
-  const chain = await prisma.chain.findUnique({ where: { homeChainId_chainId: { homeChainId, chainId } } });
-  if (!chain || !chain.rpcUrl || chain.status !== "ACTIVE") {
+  // Scoped by [homeChainId, chainId, status: ACTIVE], never bare chainId —
+  // the registry's own chainId is only unique *within one registry
+  // deployment* on a home chain (each registry redeploy restarts its own
+  // count from 1, see the Chain model's docstring), so a stale/retired
+  // registry's chain can share this same (homeChainId, chainId) pair. The
+  // relayer only ever cares about the currently-active one regardless, so
+  // filtering to status: "ACTIVE" here resolves the ambiguity directly
+  // instead of needing the registry address this watcher doesn't track.
+  const chain = await prisma.chain.findFirst({ where: { homeChainId, chainId, status: "ACTIVE" } });
+  if (!chain || !chain.rpcUrl) {
     console.warn(
       `[deposits] chain ${chainId} on home chain ${homeChainId} not active/provisioned yet, will retry mint for tx ${txHash} later`
     );
