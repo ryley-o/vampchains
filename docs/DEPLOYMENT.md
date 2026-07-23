@@ -216,6 +216,40 @@ you hit something similar:
   reason — if provisioning starts failing with an "insufficient
   resources"/"insufficient CPUs" error again, it's very likely this, not a
   bug; try a different region before debugging the code.
+- **Redeploying `VampChainRegistry` while chains are live under the old one
+  auto-tears down every chain the moment the new address is configured** —
+  not a separate bug, just a mechanical consequence of how the lifecycle
+  worker checks liveness. `detectGraceExpiredChains` reads `isActive` from
+  whichever registry address is *currently* configured; the instant that's
+  swapped to a fresh (empty) registry, every existing chain's `chainId`
+  resolves to Solidity's mapping default (`isActive() == false`) there, and
+  the lifecycle worker can't distinguish "doesn't exist on this registry"
+  from "grace period genuinely expired" — it proceeds through the full
+  automatic teardown (volume snapshot, deactivation, real Fly app
+  destruction) either way. Confirmed live: swapping
+  `vampchains-provisioner`'s `BASE_REGISTRY_ADDRESS` secret to a
+  freshly-deployed registry destroyed the existing demo chain's Fly app
+  within one lifecycle tick. Harmless on testnet with nothing of value at
+  stake, but budget for it (recreate any chains you care about on the new
+  registry right after swapping, don't assume they'll survive).
+- **A registry redeploy also breaks the provisioner's own dedup logic,
+  independent of the teardown above.** `VampChainRegistry.chainId` is a
+  bare counter that restarts from 1 on every redeploy (it's only ever
+  unique within one registry deployment), but `chainWatcher.ts`'s check for
+  "have I already seen this chain" used to match on `(homeChainId,
+  chainId)` alone. A freshly created chain on the new registry with
+  `chainId == 1` collided with the *old* registry's already-existing
+  `chainId == 1` row, so `pollNewChains` silently treated it as
+  already-known and never queued it for provisioning — no error, no log,
+  the chain just sat live on-chain with zero off-chain tracking
+  indefinitely. Fixed by adding `registryAddress` to the `Chain` model and
+  scoping the unique key/dedup lookup to `(homeChainId, registryAddress,
+  chainId)` instead. After any future registry redeploy, rewind that
+  registry's `registry-chains-<homeChainId>-<registryAddress>` cursor
+  (`IndexerCursor` row) to just before any chain-creation transaction sent
+  before the fix was live, so `pollNewChains` rescans it under the
+  corrected dedup logic rather than skipping it forever (its own cursor
+  only rescans blocks once).
 
 ### 4. Vercel: the web app
 
