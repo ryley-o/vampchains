@@ -114,25 +114,49 @@ export default async function HowItWorksPage() {
           chain&apos;s own token. That gas splits into two pieces: a priority fee (a tip to
           whoever produces the block) and a base fee (destroyed outright, per standard Ethereum
           rules). We recapture both — the tip directly, the base fee through an exact on-chain
-          accounting mechanism — and split the total <strong className="text-bone">50/50 with
-          the chain&apos;s creator</strong>, automatically, for as long as the chain is alive.
+          accounting mechanism — and split the total <strong className="text-bone">three ways:
+          a third to the chain&apos;s creator, a third to the protocol, and a third straight back
+          into keeping the chain funded</strong>, automatically, for as long as the chain is
+          alive.
         </p>
         <div className="rounded-2xl border border-hairline bg-ink-raised p-5 sm:p-6">
           <p className="font-mono text-xs uppercase tracking-[0.2em] text-blood">Worked example</p>
           <p className="mt-3 text-bone-dim/80">
             Say your chain sees enough activity in a month to generate the equivalent of{" "}
-            <span className="font-mono text-bone">$40</span> in gas fees. You get{" "}
-            <span className="font-mono text-emerald-300">$20</span>, we get{" "}
-            <span className="font-mono text-bone-dim">$20</span> — paid out directly in your
-            chain&apos;s own token, claimable any time, on top of whatever the token itself is
-            worth. A quiet chain with almost no traffic earns almost nothing; a genuinely popular
-            one keeps paying its creator indefinitely, not just once at creation.
+            <span className="font-mono text-bone">$90</span> in gas fees. You get{" "}
+            <span className="font-mono text-emerald-300">$30</span>, we get{" "}
+            <span className="font-mono text-bone-dim">$30</span>, and{" "}
+            <span className="font-mono text-blood-bright">$30</span> goes toward this chain&apos;s
+            own runway — paid out directly in your chain&apos;s own token, claimable any time, on
+            top of whatever the token itself is worth. A quiet chain with almost no traffic earns
+            almost nothing; a genuinely popular one keeps paying its creator indefinitely, not
+            just once at creation.
           </p>
         </div>
         <p>
           This is on top of the one-time creation fee, not instead of it — the annual fee covers
           our infrastructure cost; the fee split is the actual, ongoing reward for having funded
           and grown a chain.
+        </p>
+      </Section>
+
+      <Section eyebrow="User incentives" title="Using a chain keeps it alive">
+        <p>
+          Bridging into an obscure, unproven chain is a real risk — the thing you&apos;re actually
+          risking isn&apos;t losing money to a bad trade, it&apos;s the chain itself flatlining.
+          So the runway third above goes to a wallet that&apos;s completely separate from the
+          protocol&apos;s own share, earmarked to be converted and topped back into a chain&apos;s
+          funding on a best-effort basis. In other words: the more a chain gets used, the more
+          directly its own users are extending its life. Every chain page shows exactly how much
+          that runway wallet is currently holding for it and how much has actually been delivered
+          so far — a live, independently-checkable number, not just a promise.
+        </p>
+        <p>
+          We also track — and publicly show, per chain — exactly how much real gas every wallet
+          has ever spent there. We call it <strong className="text-bone">blood given</strong>.
+          There&apos;s no cash payout attached to it; it&apos;s a leaderboard, a badge of honor for
+          the people actually keeping a chain&apos;s lights on. Check any chain&apos;s page for its
+          top donors.
         </p>
       </Section>
 

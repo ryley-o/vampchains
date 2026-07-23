@@ -50,6 +50,14 @@ export interface RelayerConfig {
   /// submitting a sweep transaction whose own gas cost would eat most or
   /// all of what it's sweeping. Default 0.01 native units (18-decimal).
   feeSweepDustThresholdWei: bigint;
+  /// How often gasContributionWatcher.ts's leaderboard indexing runs —
+  /// deliberately much slower than pollIntervalMs (default 24h). This only
+  /// ever powers a public "blood given" leaderboard, never anything that
+  /// moves money, so it's kept on its own slow cadence rather than the
+  /// relayer's tight per-tick loop, both because staleness genuinely
+  /// doesn't matter here and so it can never compete for attention with
+  /// anything that does.
+  gasContributionIntervalMs: number;
 }
 
 function requireEnv(name: string): string {
@@ -110,5 +118,6 @@ export function loadConfig(): RelayerConfig {
     burnAddress: getAddress(process.env.BURN_ADDRESS ?? "0x12f5B89B02C8107278c5F24E74d7B44267C55d1f"),
     cliqueSignerAddress: getAddress(requireEnv("CLIQUE_SIGNER_ADDRESS")),
     feeSweepDustThresholdWei: BigInt(process.env.FEE_SWEEP_DUST_THRESHOLD_WEI ?? "10000000000000000"),
+    gasContributionIntervalMs: Number(process.env.GAS_CONTRIBUTION_INTERVAL_MS ?? 24 * 60 * 60 * 1000),
   };
 }

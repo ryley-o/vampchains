@@ -70,6 +70,25 @@ export async function getDefaultAnnualFee(homeChainId: number): Promise<bigint> 
   }
 }
 
+/// The runway-treasury address for a home chain's registry — deliberately
+/// read live from the contract, same as protocolTreasury, rather than
+/// duplicated into a web env var: it's the one place this address is
+/// actually authoritative. See VampChainRegistry.runwayTreasury's docstring
+/// for why it's a separate wallet from protocolTreasury in the first place.
+export async function getRunwayTreasury(homeChainId: number): Promise<`0x${string}` | null> {
+  const cfg = getHomeChainWebConfig(homeChainId);
+  if (!cfg || !cfg.configured) return null;
+  try {
+    return (await getHomePublicClient(homeChainId).readContract({
+      address: cfg.registryAddress,
+      abi: REGISTRY_ABI,
+      functionName: "runwayTreasury",
+    })) as `0x${string}`;
+  } catch {
+    return null;
+  }
+}
+
 export async function getIsActive(homeChainId: number, chainId: bigint): Promise<boolean> {
   const cfg = getHomeChainWebConfig(homeChainId);
   if (!cfg || !cfg.configured) return false;

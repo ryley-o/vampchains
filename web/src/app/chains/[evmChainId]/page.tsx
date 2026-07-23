@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@vampchains/db";
-import { getOnchainChain, getRemainingRuntime } from "@/lib/registryReads";
+import { getOnchainChain, getRemainingRuntime, getRunwayTreasury } from "@/lib/registryReads";
 import { getBurnedFeesClaimed } from "@/lib/bridgeReads";
 import { formatTokenAmount, formatUsdc, shortAddress } from "@/lib/format";
 import { GATEWAY_URL, getHomeChainWebConfig } from "@/lib/contracts";
@@ -13,6 +13,8 @@ import { TopUpForm } from "@/components/TopUpForm";
 import { ExplorerPanel } from "@/components/ExplorerPanel";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { AddToWalletButton } from "@/components/AddToWalletButton";
+import { BloodDonorsPanel } from "@/components/BloodDonorsPanel";
+import { RunwayCommitmentPanel } from "@/components/RunwayCommitmentPanel";
 import { RunwayMeter } from "@/components/brand/RunwayMeter";
 
 export const dynamic = "force-dynamic";
@@ -85,11 +87,12 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ev
   const homeConfig = getHomeChainWebConfig(homeChainId);
   const contractsConfigured = !!homeConfig?.configured;
 
-  const [onchain, remainingRuntime, wrappedTokenRows, burnedFeesClaimed] = await Promise.all([
+  const [onchain, remainingRuntime, wrappedTokenRows, burnedFeesClaimed, runwayTreasury] = await Promise.all([
     getOnchainChain(homeChainId, chainId),
     getRemainingRuntime(homeChainId, chainId),
     prisma.wrappedToken.findMany({ where: { chainDbId: dbChain.id }, orderBy: { createdAt: "asc" } }),
     getBurnedFeesClaimed(homeChainId, chainId),
+    getRunwayTreasury(homeChainId),
   ]);
 
   const wrappedTokens = wrappedTokenRows.map((w) => ({
@@ -166,13 +169,13 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ev
       </Panel>
 
       {contractsConfigured && onchain && (
-        <Panel title="Creator earnings" eyebrow="50/50 split">
+        <Panel title="Creator earnings" eyebrow="3-way split">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <p className="text-sm text-bone-dim/60">
-                Gas fees this chain generates split 50/50 between its creator{" "}
-                <span className="font-mono text-bone-dim">{shortAddress(onchain.creator)}</span>{" "}
-                and the protocol — automatically, for as long as it&apos;s running.
+                Gas fees this chain generates split three ways between its creator{" "}
+                <span className="font-mono text-bone-dim">{shortAddress(onchain.creator)}</span>, the protocol, and
+                this chain&apos;s own runway — automatically, for as long as it&apos;s running.
               </p>
               <p className="mt-1 text-xs text-bone-dim/40">
                 Base-fee revenue recaptured so far (floor — swept tip revenue adds to this too).
@@ -185,6 +188,22 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ev
           </div>
         </Panel>
       )}
+
+      {contractsConfigured && runwayTreasury && (
+        <Panel title="Runway commitment" eyebrow="Fed by usage">
+          <RunwayCommitmentPanel
+            chainId={chainId}
+            homeChainId={homeChainId}
+            baseToken={dbChain.baseToken as `0x${string}`}
+            symbol={dbChain.symbol}
+            runwayTreasury={runwayTreasury}
+          />
+        </Panel>
+      )}
+
+      <Panel title="Blood given" eyebrow="Top donors">
+        <BloodDonorsPanel chainDbId={dbChain.id} symbol={dbChain.symbol} />
+      </Panel>
 
       {inGracePeriod && (
         <p className="rounded-xl border border-blood/60 bg-blood/10 px-4 py-3 text-xs font-semibold leading-relaxed text-blood-bright">

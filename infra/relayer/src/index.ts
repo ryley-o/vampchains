@@ -9,6 +9,7 @@ import { pollGeneralDeposits } from "./generalDepositWatcher.js";
 import { pollGeneralWithdrawals } from "./generalWithdrawalWatcher.js";
 import { trackBurnedFees } from "./baseFeeWatcher.js";
 import { sweepTips } from "./feeSweep.js";
+import { trackGasContributions } from "./gasContributionWatcher.js";
 
 type SigningAccount = ReturnType<typeof privateKeyToAccount>;
 
@@ -89,6 +90,11 @@ async function tickVampchain(chain: ChainRow, runtimes: Map<number, HomeChainRun
   }
 }
 
+// Module-scope, not part of RelayerConfig: this is mutable runtime state
+// (when the leaderboard indexer last actually ran), not configuration. A
+// single long-lived process, so no concurrency concerns sharing this.
+let lastGasContributionRun = 0;
+
 async function tick(runtimes: Map<number, HomeChainRuntime>, treasuryAccount: SigningAccount, cfg: RelayerConfig) {
   for (const runtime of runtimes.values()) {
     await tickDeposits(runtime, treasuryAccount);
@@ -104,6 +110,18 @@ async function tick(runtimes: Map<number, HomeChainRuntime>, treasuryAccount: Si
 
   for (const chain of activeChains) {
     await tickVampchain(chain, runtimes, cfg);
+  }
+
+  const dueForGasContribution = Date.now() - lastGasContributionRun >= cfg.gasContributionIntervalMs;
+  if (dueForGasContribution) {
+    lastGasContributionRun = Date.now();
+    for (const chain of activeChains) {
+      try {
+        await trackGasContributions(chain);
+      } catch (err) {
+        console.error(`[gas-contribution] failed for chain ${chain.chainId}:`, err);
+      }
+    }
   }
 }
 

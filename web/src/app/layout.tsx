@@ -56,6 +56,12 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
                   Create a chain
                 </Link>
                 <Link
+                  href="/donors"
+                  className="hidden font-medium text-bone-dim transition-colors hover:text-bone sm:inline"
+                >
+                  Blood given
+                </Link>
+                <Link
                   href="/terms"
                   className="hidden font-medium text-bone-dim/60 transition-colors hover:text-bone-dim sm:inline"
                 >
@@ -72,7 +78,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             <div className="mx-auto flex max-w-6xl flex-col gap-3 px-5 py-8 text-xs text-bone-dim/50 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
                 <Logo className="h-4 w-4 text-bone-dim/40" monochrome />
-                <span className="font-mono uppercase tracking-wider">Vampchain · Base Sepolia</span>
+                <span className="font-mono uppercase tracking-wider">Vampchain · Multi-chain testnet</span>
               </div>
               <p>
                 Unaudited, experimental, single-relayer bridge trust model. Read the{" "}

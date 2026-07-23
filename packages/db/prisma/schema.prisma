@@ -101,6 +101,7 @@ model Chain {
   fundingEvents        FundingEvent[]
   wrappedTokens        WrappedToken[]
   snapshotEntitlements SnapshotEntitlement[]
+  gasContributions     GasContribution[]
 
   @@unique([homeChainId, chainId])
   @@index([status])
@@ -269,6 +270,38 @@ model FundingEvent {
 
   @@unique([txHash, chainId, kind])
   @@index([chainId])
+}
+
+/// Running total of native-currency gas spent by each address on each
+/// vampchain — "blood given" to that chain's own economy, the public
+/// leaderboard feature. Deliberately outside the claim/payout trust model
+/// entirely: it's just an indexed read of real on-chain activity (gasUsed *
+/// effectiveGasPrice per transaction, attributed to its sender), refreshed
+/// on a slow periodic cadence by the relayer (see
+/// infra/relayer/src/gasContributionWatcher.ts) rather than the tight
+/// per-block cadence deposit/withdrawal watching needs — a day of staleness
+/// here is fine, unlike anything that actually moves money.
+model GasContribution {
+  id        Int   @id @default(autoincrement())
+  chain     Chain @relation(fields: [chainDbId], references: [id])
+  chainDbId Int
+  chainId   BigInt
+
+  address String
+
+  /// Cumulative native-currency wei spent on gas by this address on this
+  /// chain — tip and burned base fee both included, since both are real
+  /// spend regardless of where they ended up; this is a leaderboard of
+  /// what someone actually paid, not a claim on any specific revenue
+  /// stream. Native 18-decimal wei, matching every other native-currency
+  /// accounting column in this schema (see
+  /// Chain.cumulativeBaseFeeBurnedNativeWei).
+  totalGasSpentNativeWei String @default("0")
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([chainDbId, address])
+  @@index([chainDbId])
 }
 
 /// Last processed block per on-chain watcher, so the indexer/relayer can

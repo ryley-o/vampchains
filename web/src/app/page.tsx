@@ -122,8 +122,9 @@ export default async function HomePage() {
               </h2>
               <p className="mt-4 text-sm leading-relaxed text-bone-dim/70">
                 Every transaction on your vampchain generates gas fees. We split that revenue
-                50/50 with you, automatically, for as long as the chain runs — on top of whatever
-                the token itself is worth.
+                three ways — you, the protocol, and a third that goes straight back into keeping
+                your chain funded — automatically, for as long as the chain runs, on top of
+                whatever the token itself is worth.
               </p>
               <Link
                 href="/how-it-works"
@@ -138,15 +139,19 @@ export default async function HomePage() {
               </p>
               <div className="mt-4 flex items-center justify-between">
                 <span className="text-sm text-bone-dim/60">Chain generates</span>
-                <span className="font-mono text-lg text-bone">$40</span>
+                <span className="font-mono text-lg text-bone">$90</span>
               </div>
               <div className="mt-3 flex items-center justify-between border-t border-hairline pt-3">
                 <span className="text-sm text-bone-dim/60">You (creator)</span>
-                <span className="font-mono text-lg text-emerald-300">$20</span>
+                <span className="font-mono text-lg text-emerald-300">$30</span>
               </div>
               <div className="mt-3 flex items-center justify-between">
                 <span className="text-sm text-bone-dim/60">Protocol</span>
-                <span className="font-mono text-lg text-bone-dim">$20</span>
+                <span className="font-mono text-lg text-bone-dim">$30</span>
+              </div>
+              <div className="mt-3 flex items-center justify-between">
+                <span className="text-sm text-bone-dim/60">Chain runway</span>
+                <span className="font-mono text-lg text-blood-bright">$30</span>
               </div>
             </div>
           </div>

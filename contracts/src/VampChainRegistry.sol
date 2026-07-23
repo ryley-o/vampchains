@@ -75,6 +75,21 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
     /// @notice Where the protocol's earned fees are withdrawn to.
     address public protocolTreasury;
 
+    /// @notice Where the "runway" third of every gas-fee claim (see
+    /// VampBridge.sol's `_payProtocolAndCreator`) is sent — deliberately a
+    /// separate address from `protocolTreasury`, not just a separate
+    /// accounting bucket at the same address. The whole point is that
+    /// anyone can independently verify what's been earmarked for keeping
+    /// chains funded (this address's own token balances/history, publicly
+    /// readable) without trusting an off-chain claim about how protocol
+    /// revenue was split internally. Converting what accumulates here into
+    /// USDC and actually calling `topUp` on a chain's behalf is a manual,
+    /// best-effort process at the protocol's discretion — there's no
+    /// automatic on-chain path from an arbitrary ERC20 to a `topUp` call,
+    /// since that would require a trusted DEX/oracle integration this
+    /// project deliberately doesn't take on.
+    address public runwayTreasury;
+
     uint256 public nextChainId = 1;
 
     mapping(uint256 => VampChain) internal _chains;
@@ -97,6 +112,7 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
     event ChainDeactivated(uint256 indexed chainId, uint256 timestamp);
     event DefaultAnnualFeeUpdated(uint256 oldFee, uint256 newFee);
     event ProtocolTreasuryUpdated(address oldTreasury, address newTreasury);
+    event RunwayTreasuryUpdated(address oldTreasury, address newTreasury);
 
     error InvalidToken();
     error InvalidLabel();
@@ -107,12 +123,19 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
     error ZeroAddress();
     error NothingToWithdraw();
 
-    constructor(address usdc_, uint256 defaultAnnualFeeUSDC_, address protocolTreasury_, address owner_) {
+    constructor(
+        address usdc_,
+        uint256 defaultAnnualFeeUSDC_,
+        address protocolTreasury_,
+        address runwayTreasury_,
+        address owner_
+    ) {
         if (usdc_ == address(0)) revert ZeroAddress();
         if (owner_ == address(0)) revert ZeroAddress();
         usdc = usdc_;
         defaultAnnualFeeUSDC = defaultAnnualFeeUSDC_;
         protocolTreasury = protocolTreasury_ == address(0) ? owner_ : protocolTreasury_;
+        runwayTreasury = runwayTreasury_ == address(0) ? owner_ : runwayTreasury_;
         _initializeOwner(owner_);
     }
 
@@ -316,5 +339,11 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
         if (newTreasury == address(0)) revert ZeroAddress();
         emit ProtocolTreasuryUpdated(protocolTreasury, newTreasury);
         protocolTreasury = newTreasury;
+    }
+
+    function setRunwayTreasury(address newTreasury) external onlyOwner {
+        if (newTreasury == address(0)) revert ZeroAddress();
+        emit RunwayTreasuryUpdated(runwayTreasury, newTreasury);
+        runwayTreasury = newTreasury;
     }
 }

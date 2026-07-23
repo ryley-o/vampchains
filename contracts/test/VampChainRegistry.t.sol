@@ -12,6 +12,7 @@ contract VampChainRegistryTest is Test {
 
     address internal owner = makeAddr("owner");
     address internal treasury = makeAddr("treasury");
+    address internal runwayTreasury = makeAddr("runwayTreasury");
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
 
@@ -20,7 +21,7 @@ contract VampChainRegistryTest is Test {
 
     function setUp() public {
         usdc = new MockERC20("USD Coin", "USDC", 6);
-        registry = new VampChainRegistry(address(usdc), ANNUAL_FEE, treasury, owner);
+        registry = new VampChainRegistry(address(usdc), ANNUAL_FEE, treasury, runwayTreasury, owner);
 
         usdc.mint(alice, 1_000_000e6);
         usdc.mint(bob, 1_000_000e6);
@@ -40,17 +41,22 @@ contract VampChainRegistryTest is Test {
 
     function test_constructor_revertsOnZeroUsdc() public {
         vm.expectRevert(VampChainRegistry.ZeroAddress.selector);
-        new VampChainRegistry(address(0), ANNUAL_FEE, treasury, owner);
+        new VampChainRegistry(address(0), ANNUAL_FEE, treasury, runwayTreasury, owner);
     }
 
     function test_constructor_revertsOnZeroOwner() public {
         vm.expectRevert(VampChainRegistry.ZeroAddress.selector);
-        new VampChainRegistry(address(usdc), ANNUAL_FEE, treasury, address(0));
+        new VampChainRegistry(address(usdc), ANNUAL_FEE, treasury, runwayTreasury, address(0));
     }
 
     function test_constructor_defaultsTreasuryToOwnerIfZero() public {
-        VampChainRegistry r = new VampChainRegistry(address(usdc), ANNUAL_FEE, address(0), owner);
+        VampChainRegistry r = new VampChainRegistry(address(usdc), ANNUAL_FEE, address(0), runwayTreasury, owner);
         assertEq(r.protocolTreasury(), owner);
+    }
+
+    function test_constructor_defaultsRunwayTreasuryToOwnerIfZero() public {
+        VampChainRegistry r = new VampChainRegistry(address(usdc), ANNUAL_FEE, treasury, address(0), owner);
+        assertEq(r.runwayTreasury(), owner);
     }
 
     // ---------------------------------------------------------------------
@@ -580,6 +586,26 @@ contract VampChainRegistryTest is Test {
         assertEq(registry.protocolTreasury(), bob);
     }
 
+    function test_setRunwayTreasury_onlyOwner() public {
+        vm.expectRevert();
+        vm.prank(alice);
+        registry.setRunwayTreasury(bob);
+    }
+
+    function test_setRunwayTreasury_revertsOnZero() public {
+        vm.expectRevert(VampChainRegistry.ZeroAddress.selector);
+        vm.prank(owner);
+        registry.setRunwayTreasury(address(0));
+    }
+
+    function test_setRunwayTreasury_updatesAndEmits() public {
+        vm.expectEmit(true, true, true, true);
+        emit VampChainRegistry.RunwayTreasuryUpdated(runwayTreasury, bob);
+        vm.prank(owner);
+        registry.setRunwayTreasury(bob);
+        assertEq(registry.runwayTreasury(), bob);
+    }
+
     function test_chainCount() public {
         MockERC20 memeA = _memeToken();
         MockERC20 memeB = _memeToken();
@@ -611,7 +637,7 @@ contract VampChainRegistryTest is Test {
 
     function test_createChain_blocksReentrancy() public {
         MaliciousReentrantToken evilUsdc = new MaliciousReentrantToken();
-        VampChainRegistry evilRegistry = new VampChainRegistry(address(evilUsdc), ANNUAL_FEE, treasury, owner);
+        VampChainRegistry evilRegistry = new VampChainRegistry(address(evilUsdc), ANNUAL_FEE, treasury, runwayTreasury, owner);
         MockERC20 meme = _memeToken();
 
         evilUsdc.mint(alice, ANNUAL_FEE * 2);

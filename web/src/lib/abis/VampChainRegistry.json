@@ -18,6 +18,11 @@
         "internalType": "address"
       },
       {
+        "name": "runwayTreasury_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
         "name": "owner_",
         "type": "address",
         "internalType": "address"
@@ -476,6 +481,19 @@
   },
   {
     "type": "function",
+    "name": "runwayTreasury",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "setDefaultAnnualFee",
     "inputs": [
       {
@@ -490,6 +508,19 @@
   {
     "type": "function",
     "name": "setProtocolTreasury",
+    "inputs": [
+      {
+        "name": "newTreasury",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setRunwayTreasury",
     "inputs": [
       {
         "name": "newTreasury",
@@ -723,6 +754,25 @@
   {
     "type": "event",
     "name": "ProtocolTreasuryUpdated",
+    "inputs": [
+      {
+        "name": "oldTreasury",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "newTreasury",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RunwayTreasuryUpdated",
     "inputs": [
       {
         "name": "oldTreasury",

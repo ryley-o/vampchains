@@ -33,7 +33,8 @@ contract DeployLocal is Script {
         MockERC20 mockUsdc = new MockERC20("USD Coin", "USDC", 6);
         mockUsdc.mint(deployer, 1_000_000e6);
 
-        VampChainRegistry registryContract = new VampChainRegistry(address(mockUsdc), 1_000e6, deployer, deployer);
+        VampChainRegistry registryContract =
+            new VampChainRegistry(address(mockUsdc), 1_000e6, deployer, deployer, deployer);
         VampBridge bridgeContract = new VampBridge(address(registryContract), RELAYER_ADDRESS, deployer);
 
         payable(PROVISIONER_ADDRESS).transfer(10 ether);

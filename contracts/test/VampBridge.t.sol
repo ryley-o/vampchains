@@ -17,6 +17,7 @@ contract VampBridgeTest is Test {
 
     address internal owner = makeAddr("owner");
     address internal treasury = makeAddr("treasury");
+    address internal runwayTreasury = makeAddr("runwayTreasury");
     uint256 internal signerKey = 0xB1DE12; // arbitrary nonzero private key
     address internal signer;
     address internal alice = makeAddr("alice");
@@ -35,7 +36,7 @@ contract VampBridgeTest is Test {
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
         meme = new MockERC20("Doge Base", "DOGB", 18);
-        registry = new VampChainRegistry(address(usdc), ANNUAL_FEE, treasury, owner);
+        registry = new VampChainRegistry(address(usdc), ANNUAL_FEE, treasury, runwayTreasury, owner);
         bridge = new VampBridge(address(registry), signer, owner);
 
         usdc.mint(alice, 1_000_000e6);
@@ -565,7 +566,7 @@ contract VampBridgeTest is Test {
     function test_deposit_blocksReentrancy() public {
         MaliciousReentrantToken evilMeme = new MaliciousReentrantToken();
         MockERC20 feeToken = new MockERC20("USD Coin", "USDC", 6);
-        VampChainRegistry evilRegistry = new VampChainRegistry(address(feeToken), ANNUAL_FEE, treasury, owner);
+        VampChainRegistry evilRegistry = new VampChainRegistry(address(feeToken), ANNUAL_FEE, treasury, runwayTreasury, owner);
         VampBridge evilBridge = new VampBridge(address(evilRegistry), signer, owner);
 
         feeToken.mint(alice, ANNUAL_FEE);
@@ -938,34 +939,37 @@ contract VampBridgeTest is Test {
     // protocol fee revenue: claimSwept (tips)
     // ---------------------------------------------------------------------
 
-    function test_claimSwept_happyPath_splitsFiftyFiftyWithCreator() public {
+    function test_claimSwept_happyPath_splitsThreeWaysWithCreatorAndRunway() public {
         vm.prank(alice);
         bridge.deposit(chainId, 100e18, alice); // alice is also this chain's creator
 
         bytes32 txHash = keccak256("sweep1");
-        bytes memory sig = _validSweptSignature(chainId, 40e18, txHash);
+        bytes memory sig = _validSweptSignature(chainId, 90e18, txHash);
 
-        (uint256 toProtocol, uint256 toCreator) = bridge.claimSwept(chainId, 40e18, txHash, sig);
+        (uint256 toProtocol, uint256 toCreator, uint256 toRunway) = bridge.claimSwept(chainId, 90e18, txHash, sig);
 
-        assertEq(toProtocol, 20e18);
-        assertEq(toCreator, 20e18);
-        assertEq(meme.balanceOf(treasury), 20e18);
-        assertEq(meme.balanceOf(alice), 1_000_000e18 - 100e18 + 20e18); // minted, deposited, then paid back their share
-        assertEq(bridge.lockedBalance(chainId), 60e18);
+        assertEq(toProtocol, 30e18);
+        assertEq(toCreator, 30e18);
+        assertEq(toRunway, 30e18);
+        assertEq(meme.balanceOf(treasury), 30e18);
+        assertEq(meme.balanceOf(runwayTreasury), 30e18);
+        assertEq(meme.balanceOf(alice), 1_000_000e18 - 100e18 + 30e18); // minted, deposited, then paid back their share
+        assertEq(bridge.lockedBalance(chainId), 10e18);
         assertTrue(bridge.claimed(txHash));
     }
 
-    function test_claimSwept_oddAmount_protocolGetsExtraUnit() public {
+    function test_claimSwept_oddAmount_runwayGetsExtraUnits() public {
         vm.prank(alice);
         bridge.deposit(chainId, 100e18, alice);
 
         bytes32 txHash = keccak256("sweep-odd");
         bytes memory sig = _validSweptSignature(chainId, 7, txHash);
 
-        (uint256 toProtocol, uint256 toCreator) = bridge.claimSwept(chainId, 7, txHash, sig);
+        (uint256 toProtocol, uint256 toCreator, uint256 toRunway) = bridge.claimSwept(chainId, 7, txHash, sig);
 
-        assertEq(toCreator, 3);
-        assertEq(toProtocol, 4);
+        assertEq(toCreator, 2);
+        assertEq(toProtocol, 2);
+        assertEq(toRunway, 3);
     }
 
     function test_claimSwept_emitsEvent() public {
@@ -973,11 +977,11 @@ contract VampBridgeTest is Test {
         bridge.deposit(chainId, 100e18, alice);
 
         bytes32 txHash = keccak256("sweep1");
-        bytes memory sig = _validSweptSignature(chainId, 40e18, txHash);
+        bytes memory sig = _validSweptSignature(chainId, 90e18, txHash);
 
         vm.expectEmit(true, true, true, true);
-        emit VampBridge.SweptClaimed(chainId, 20e18, 20e18, txHash);
-        bridge.claimSwept(chainId, 40e18, txHash, sig);
+        emit VampBridge.SweptClaimed(chainId, 30e18, 30e18, 30e18, txHash);
+        bridge.claimSwept(chainId, 90e18, txHash, sig);
     }
 
     function test_claimSwept_callableByAnyone() public {
@@ -985,12 +989,13 @@ contract VampBridgeTest is Test {
         bridge.deposit(chainId, 100e18, alice);
 
         bytes32 txHash = keccak256("sweep1");
-        bytes memory sig = _validSweptSignature(chainId, 40e18, txHash);
+        bytes memory sig = _validSweptSignature(chainId, 90e18, txHash);
 
         vm.prank(makeAddr("randomSubmitter"));
-        bridge.claimSwept(chainId, 40e18, txHash, sig);
+        bridge.claimSwept(chainId, 90e18, txHash, sig);
 
-        assertEq(meme.balanceOf(treasury), 20e18);
+        assertEq(meme.balanceOf(treasury), 30e18);
+        assertEq(meme.balanceOf(runwayTreasury), 30e18);
     }
 
     function test_claimSwept_revertsOnReplay() public {
@@ -1122,39 +1127,41 @@ contract VampBridgeTest is Test {
         assertFalse(registry.isActive(chainId));
 
         bytes32 txHash = keccak256("sweep1");
-        bytes memory sig = _validSweptSignature(chainId, 40e18, txHash);
-        bridge.claimSwept(chainId, 40e18, txHash, sig);
+        bytes memory sig = _validSweptSignature(chainId, 90e18, txHash);
+        bridge.claimSwept(chainId, 90e18, txHash, sig);
 
-        assertEq(meme.balanceOf(treasury), 20e18);
+        assertEq(meme.balanceOf(treasury), 30e18);
     }
 
     // ---------------------------------------------------------------------
     // protocol fee revenue: claimBurnedFees (base fee)
     // ---------------------------------------------------------------------
 
-    function test_claimBurnedFees_happyPath_splitsFiftyFiftyWithCreator() public {
+    function test_claimBurnedFees_happyPath_splitsThreeWaysWithCreatorAndRunway() public {
         vm.prank(alice);
         bridge.deposit(chainId, 100e18, alice);
 
-        bytes memory sig = _validBurnedFeesSignature(chainId, 40e18, 12345);
-        (uint256 toProtocol, uint256 toCreator) = bridge.claimBurnedFees(chainId, 40e18, 12345, sig);
+        bytes memory sig = _validBurnedFeesSignature(chainId, 90e18, 12345);
+        (uint256 toProtocol, uint256 toCreator, uint256 toRunway) = bridge.claimBurnedFees(chainId, 90e18, 12345, sig);
 
-        assertEq(toProtocol, 20e18);
-        assertEq(toCreator, 20e18);
-        assertEq(meme.balanceOf(treasury), 20e18);
-        assertEq(bridge.lockedBalance(chainId), 60e18);
-        assertEq(bridge.burnedFeesClaimed(chainId), 40e18);
+        assertEq(toProtocol, 30e18);
+        assertEq(toCreator, 30e18);
+        assertEq(toRunway, 30e18);
+        assertEq(meme.balanceOf(treasury), 30e18);
+        assertEq(meme.balanceOf(runwayTreasury), 30e18);
+        assertEq(bridge.lockedBalance(chainId), 10e18);
+        assertEq(bridge.burnedFeesClaimed(chainId), 90e18);
     }
 
     function test_claimBurnedFees_emitsEvent() public {
         vm.prank(alice);
         bridge.deposit(chainId, 100e18, alice);
 
-        bytes memory sig = _validBurnedFeesSignature(chainId, 40e18, 12345);
+        bytes memory sig = _validBurnedFeesSignature(chainId, 90e18, 12345);
 
         vm.expectEmit(true, true, true, true);
-        emit VampBridge.BurnedFeesClaimed(chainId, 20e18, 20e18, 40e18, 12345);
-        bridge.claimBurnedFees(chainId, 40e18, 12345, sig);
+        emit VampBridge.BurnedFeesClaimed(chainId, 30e18, 30e18, 30e18, 90e18, 12345);
+        bridge.claimBurnedFees(chainId, 90e18, 12345, sig);
     }
 
     /// @notice Only the increment over what's already been claimed gets
@@ -1168,9 +1175,9 @@ contract VampBridgeTest is Test {
         assertEq(bridge.lockedBalance(chainId), 60e18);
 
         bytes memory sig2 = _validBurnedFeesSignature(chainId, 55e18, 200);
-        (uint256 toProtocol, uint256 toCreator) = bridge.claimBurnedFees(chainId, 55e18, 200, sig2);
+        (uint256 toProtocol, uint256 toCreator, uint256 toRunway) = bridge.claimBurnedFees(chainId, 55e18, 200, sig2);
 
-        assertEq(toProtocol + toCreator, 15e18); // only the new 15e18 increment, not the full 55e18 again
+        assertEq(toProtocol + toCreator + toRunway, 15e18); // only the new 15e18 increment, not the full 55e18 again
         assertEq(bridge.lockedBalance(chainId), 45e18);
         assertEq(bridge.burnedFeesClaimed(chainId), 55e18);
     }
@@ -1200,9 +1207,9 @@ contract VampBridgeTest is Test {
         bridge.deposit(chainId, 10e18, alice);
 
         bytes memory sig = _validBurnedFeesSignature(chainId, 40e18, 100);
-        (uint256 toProtocol, uint256 toCreator) = bridge.claimBurnedFees(chainId, 40e18, 100, sig);
+        (uint256 toProtocol, uint256 toCreator, uint256 toRunway) = bridge.claimBurnedFees(chainId, 40e18, 100, sig);
 
-        assertEq(toProtocol + toCreator, 10e18);
+        assertEq(toProtocol + toCreator + toRunway, 10e18);
         assertEq(bridge.lockedBalance(chainId), 0);
         assertEq(bridge.burnedFeesClaimed(chainId), 10e18); // only what was actually paid, not the full 40e18 attested
 
@@ -1213,8 +1220,8 @@ contract VampBridgeTest is Test {
         bridge.deposit(chainId, 20e18, alice);
 
         bytes memory sig2 = _validBurnedFeesSignature(chainId, 40e18, 200);
-        (uint256 toProtocol2, uint256 toCreator2) = bridge.claimBurnedFees(chainId, 40e18, 200, sig2);
-        assertEq(toProtocol2 + toCreator2, 20e18);
+        (uint256 toProtocol2, uint256 toCreator2, uint256 toRunway2) = bridge.claimBurnedFees(chainId, 40e18, 200, sig2);
+        assertEq(toProtocol2 + toCreator2 + toRunway2, 20e18);
         assertEq(bridge.burnedFeesClaimed(chainId), 30e18);
     }
 
@@ -1222,11 +1229,11 @@ contract VampBridgeTest is Test {
         vm.prank(alice);
         bridge.deposit(chainId, 100e18, alice);
 
-        bytes memory sig = _validBurnedFeesSignature(chainId, 40e18, 100);
+        bytes memory sig = _validBurnedFeesSignature(chainId, 90e18, 100);
         vm.prank(makeAddr("randomSubmitter"));
-        bridge.claimBurnedFees(chainId, 40e18, 100, sig);
+        bridge.claimBurnedFees(chainId, 90e18, 100, sig);
 
-        assertEq(meme.balanceOf(treasury), 20e18);
+        assertEq(meme.balanceOf(treasury), 30e18);
     }
 
     function test_claimBurnedFees_revertsOnWrongSigner() public {
@@ -1313,10 +1320,10 @@ contract VampBridgeTest is Test {
         registry.deactivateIfGraceExpired(chainId);
         assertFalse(registry.isActive(chainId));
 
-        bytes memory sig = _validBurnedFeesSignature(chainId, 40e18, 100);
-        bridge.claimBurnedFees(chainId, 40e18, 100, sig);
+        bytes memory sig = _validBurnedFeesSignature(chainId, 90e18, 100);
+        bridge.claimBurnedFees(chainId, 90e18, 100, sig);
 
-        assertEq(meme.balanceOf(treasury), 20e18);
+        assertEq(meme.balanceOf(treasury), 30e18);
     }
 
     function testFuzz_claimBurnedFees_neverExceedsLockedBalance(uint96 depositAmount, uint96 cumulativeBurned)
@@ -1335,8 +1342,8 @@ contract VampBridgeTest is Test {
             return;
         }
 
-        (uint256 toProtocol, uint256 toCreator) = bridge.claimBurnedFees(chainId, cumulativeBurned, 1, sig);
-        assertLe(toProtocol + toCreator, depositAmount);
+        (uint256 toProtocol, uint256 toCreator, uint256 toRunway) = bridge.claimBurnedFees(chainId, cumulativeBurned, 1, sig);
+        assertLe(toProtocol + toCreator + toRunway, depositAmount);
         assertGe(bridge.lockedBalance(chainId), 0);
     }
 

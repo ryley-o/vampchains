@@ -4,7 +4,7 @@ out = "out"
 libs = ["dependencies"]
 optimizer = true
 optimizer_runs = 1_000_000
-via_ir = false
+via_ir = true
 # Must not exceed London: our geth-based vampchain/L1-stand-in genesis stops
 # at London deliberately. Any timestamp-based fork (Shanghai+, needed for
 # PUSH0) only activates once geth considers the chain "post-merge", which
