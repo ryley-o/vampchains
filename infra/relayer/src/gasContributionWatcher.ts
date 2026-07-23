@@ -19,13 +19,25 @@ import { prisma } from "@vampchains/db";
 /// only real cost is one extra small upsert per transaction, not a second
 /// full RPC scan.
 ///
-/// Deliberately NOT run at the relayer's tight per-tick cadence — this only
-/// ever powers a leaderboard and tx-history lookups, never anything that
-/// moves money, so a day of staleness is completely fine (see index.ts,
-/// which calls this on a much slower interval). Uses the same per-chain
-/// IndexerCursor pattern as every other watcher here (cursor id
-/// `gas-contribution-${chain.id}`, keyed by the internal DB id since that's
-/// unique regardless of which home chain a vampchain came from).
+/// Runs on its own interval (index.ts, `gasContributionIntervalMs`) rather
+/// than the relayer's tight per-tick loop, but for a different reason than
+/// it might look like: this never touches anything that moves money, so a
+/// brief lag is always fine, not that a long one specifically is needed.
+///
+/// Cursor starts at genesis (block 0), not "now" — unlike the L1 deposit
+/// watchers' cursors, which deliberately skip ahead to avoid a public,
+/// rate-limited L1 RPC rejecting a full-history `eth_getLogs` scan against
+/// a busy real chain. A vampchain is nothing like that: it's our own
+/// low-traffic single-node geth instance, reached over its own internal
+/// RPC, never the rate-limited public gateway. Skipping ahead here would
+/// just be inherited caution that doesn't fit — genesis is cheap to walk
+/// for a vampchain (single-signer Clique mines empty blocks on a fixed
+/// period, but even so this is nowhere near the volume that motivated the
+/// L1 watchers' fix), so this is deliberately complete history from block
+/// 0, not partial. Uses the same per-chain IndexerCursor pattern as every
+/// other watcher here (cursor id `gas-contribution-${chain.id}`, keyed by
+/// the internal DB id since that's unique regardless of which home chain a
+/// vampchain came from).
 export async function trackGasContributions(chain: ChainRow) {
   if (!chain.rpcUrl) return;
   const sideClient = createPublicClient({ transport: http(chain.rpcUrl) });
@@ -36,7 +48,7 @@ export async function trackGasContributions(chain: ChainRow) {
   const cursor = await prisma.indexerCursor.upsert({
     where: { id: cursorId },
     update: {},
-    create: { id: cursorId, lastBlock: safeLatest > 0n ? safeLatest - 1n : 0n },
+    create: { id: cursorId, lastBlock: -1n },
   });
 
   const fromBlock = cursor.lastBlock + 1n;

@@ -471,12 +471,22 @@ the one thing on `scan/`'s address page that isn't a live RPC call —
 vanilla geth has no "all transactions by address" method, so this needed
 actual indexing rather than a client-side lookup. Rather than stand up a
 dedicated indexer, `infra/relayer`'s existing `gasContributionWatcher`
-(which already walks every active chain's blocks on a slow cadence for the
-"blood given" leaderboard) now also persists one `TxActivity` row per
-transaction it touches anyway — the marginal cost is one extra small
-upsert per tx, not a second full block scan. Only covers activity from
-whenever this started running forward, no historical backfill, shown
-honestly in the UI as a partial history rather than silently incomplete.
+(which already walks every active chain's blocks for the "blood given"
+leaderboard) now also persists one `TxActivity` row per transaction it
+touches anyway — the marginal cost is one extra small upsert per tx, not a
+second full block scan. Its cursor starts at genesis rather than "now" —
+the L1 deposit watchers deliberately skip ahead to avoid a public,
+rate-limited L1 RPC rejecting a full-history scan against a busy real
+chain, but a vampchain is nothing like that (our own low-traffic
+single-node geth instance, reached over its own internal RPC, never the
+rate-limited public gateway), so that caution doesn't apply here and this
+is genuinely complete history per chain. Runs on a 30s interval by default
+(`GAS_CONTRIBUTION_INTERVAL_MS`) — this used to be 24h back when it only
+fed a leaderboard where staleness truly didn't matter, but tightened once
+it started feeding a live-feeling explorer feature too; confirmed safe at
+this cadence since every call is direct to a vampchain's own internal RPC
+(never the public gateway) and roughly matches the cadence the relayer
+already polls every active chain at for its other watchers.
 Addresses are checksummed via `getAddress()` at write time (`from`/`to`)
 to match `VerifiedContract.address`'s existing convention — a real bug hit
 live during this build: a URL address typed/pasted in different casing

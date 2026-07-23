@@ -347,14 +347,13 @@ model VerifiedContract {
 
 /// One row per transaction, populated by infra/relayer's existing
 /// gasContributionWatcher (which already walks every active chain's blocks
-/// on a slow cadence for the "blood given" leaderboard) rather than a
-/// dedicated indexer service — closes scan/'s "no native-currency transfer
-/// history for an address" gap (vanilla geth has no "all txs by address"
-/// RPC method) without violating the project's no-separate-indexer
-/// philosophy. Only covers transactions from whenever this started running
-/// forward — no historical backfill — so scan/ shows this honestly as a
-/// partial history, the same way it already does for a torn-down chain's
-/// unrecoverable history.
+/// for the "blood given" leaderboard) rather than a dedicated indexer
+/// service — closes scan/'s "no native-currency transfer history for an
+/// address" gap (vanilla geth has no "all txs by address" RPC method)
+/// without violating the project's no-separate-indexer philosophy. The
+/// watcher's cursor starts at genesis, not "now" (see its own docstring
+/// for why that's safe here specifically, unlike the L1 watchers), so this
+/// is complete history per chain, not a partial one.
 model TxActivity {
   id        Int   @id @default(autoincrement())
   chain     Chain @relation(fields: [chainDbId], references: [id])

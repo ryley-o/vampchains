@@ -7,9 +7,7 @@ import { getChainClient } from "@/lib/gatewayClient";
 import { recognizeContract, type ContractRecognition } from "@/lib/contractRecognition";
 import { GENESIS_CONTRACTS } from "@vampchains/contract-abis";
 import { formatTokenAmount, shortAddress, shortHash, timeAgo } from "@/lib/format";
-import { ContractReadPanel } from "@/components/ContractReadPanel";
-import { ContractWritePanel } from "@/components/ContractWritePanel";
-import { SourceCodeViewer } from "@/components/SourceCodeViewer";
+import { VerifiedContractTabs } from "@/components/VerifiedContractTabs";
 import type { StandardJsonSources } from "@/lib/standardJsonInput";
 
 interface VerifiedContractMeta {
@@ -163,8 +161,7 @@ export function LiveAddressDetail({
       <div className="rounded-2xl border border-hairline bg-ink-raised p-6">
         <h2 className="text-display text-lg text-bone">Native transactions</h2>
         <p className="mt-1 text-xs text-bone-dim/40">
-          Only covers activity since indexing started — this isn&apos;t a full history, the same honest
-          limitation as a torn-down chain&apos;s unrecoverable past.
+          Indexed from this chain&apos;s own node — may lag live activity by up to ~30s.
         </p>
         {txActivity.length === 0 ? (
           <p className="mt-4 text-sm text-bone-dim/50">No indexed native transactions found.</p>
@@ -355,32 +352,15 @@ function RecognitionPanel({
           <p className="mt-1 text-sm text-bone">{verifiedContract.contractName}</p>
           <p className="mt-1 font-mono text-xs text-bone-dim/60">solc {verifiedContract.compilerVersion}</p>
         </div>
-        <div className="rounded-2xl border border-hairline bg-ink-raised p-6">
-          <h2 className="text-display text-lg text-bone">Source code</h2>
-          <div className="mt-4">
-            <SourceCodeViewer sources={verifiedContract.sources} />
-          </div>
-        </div>
-        <div className="rounded-2xl border border-hairline bg-ink-raised p-6">
-          <h2 className="text-display text-lg text-bone">Read contract</h2>
-          <div className="mt-4">
-            <ContractReadPanel evmChainId={evmChainId} address={address} abi={verifiedContract.abi} />
-          </div>
-        </div>
-        <div className="rounded-2xl border border-hairline bg-ink-raised p-6">
-          <h2 className="text-display text-lg text-bone">Write contract</h2>
-          <p className="mt-1 text-xs text-bone-dim/40">Connect a browser wallet to send a real transaction.</p>
-          <div className="mt-4">
-            <ContractWritePanel
-              evmChainId={evmChainId}
-              address={address}
-              abi={verifiedContract.abi}
-              chainName={chainName}
-              chainSymbol={chainSymbol}
-              rpcUrl={gatewayRpcUrl}
-            />
-          </div>
-        </div>
+        <VerifiedContractTabs
+          evmChainId={evmChainId}
+          address={address}
+          abi={verifiedContract.abi}
+          sources={verifiedContract.sources}
+          chainName={chainName}
+          chainSymbol={chainSymbol}
+          gatewayRpcUrl={gatewayRpcUrl}
+        />
       </div>
     );
   }

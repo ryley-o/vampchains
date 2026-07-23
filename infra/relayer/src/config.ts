@@ -50,13 +50,16 @@ export interface RelayerConfig {
   /// submitting a sweep transaction whose own gas cost would eat most or
   /// all of what it's sweeping. Default 0.01 native units (18-decimal).
   feeSweepDustThresholdWei: bigint;
-  /// How often gasContributionWatcher.ts's leaderboard indexing runs —
-  /// deliberately much slower than pollIntervalMs (default 24h). This only
-  /// ever powers a public "blood given" leaderboard, never anything that
-  /// moves money, so it's kept on its own slow cadence rather than the
-  /// relayer's tight per-tick loop, both because staleness genuinely
-  /// doesn't matter here and so it can never compete for attention with
-  /// anything that does.
+  /// How often gasContributionWatcher.ts runs — used to power the "blood
+  /// given" leaderboard AND (as of the TxActivity extension) scan/'s
+  /// native-transaction history, so unlike a pure leaderboard, staleness
+  /// here is now user-visible. Default 30s: every call is direct to a
+  /// vampchain's own internal RPC (never the public rate-limited gateway),
+  /// and this roughly matches the cadence the relayer already polls every
+  /// active chain at for its other watchers — not a new order of magnitude
+  /// of load. Still never anything that moves money, so it's fine for this
+  /// to lag briefly under real load; it just doesn't need to lag a full day
+  /// anymore now that something in the UI actually depends on freshness.
   gasContributionIntervalMs: number;
 }
 
@@ -118,6 +121,6 @@ export function loadConfig(): RelayerConfig {
     burnAddress: getAddress(process.env.BURN_ADDRESS ?? "0x12f5B89B02C8107278c5F24E74d7B44267C55d1f"),
     cliqueSignerAddress: getAddress(requireEnv("CLIQUE_SIGNER_ADDRESS")),
     feeSweepDustThresholdWei: BigInt(process.env.FEE_SWEEP_DUST_THRESHOLD_WEI ?? "10000000000000000"),
-    gasContributionIntervalMs: Number(process.env.GAS_CONTRIBUTION_INTERVAL_MS ?? 24 * 60 * 60 * 1000),
+    gasContributionIntervalMs: Number(process.env.GAS_CONTRIBUTION_INTERVAL_MS ?? 30 * 1000),
   };
 }
