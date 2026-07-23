@@ -30,47 +30,47 @@ const LIFECYCLE_STEPS = [
   {
     n: "01",
     title: "Active",
-    body: "Fully funded and running. Deposits, minting, top-ups, everything works. Anyone can extend the runway at any time — that's the public anti-rug mechanism.",
+    body: "Fully funded and running — deposits, minting, top-ups, everything works. Anyone can extend the runway; that's the public anti-rug mechanism.",
     tone: "text-emerald-300",
   },
   {
     n: "02",
     title: "Runway runs out",
-    body: "The annual fee is drawn down linearly — nobody is ever charged for time not yet served. If nobody's topped it up by the time the paid runway hits zero, the chain doesn't shut off. It moves to a one-week grace period instead.",
+    body: "Paid runway hits zero. The chain doesn't shut off — it moves into a one-week grace period.",
     tone: "text-amber-300",
   },
   {
     n: "03",
     title: "Grace period (7 days)",
-    body: "The chain stays completely open — same as step 01 — for a full week. This is a real rescue window, not a formality: anyone can top it up and it's back to normal, no funds ever move, nothing is lost.",
+    body: "Stays fully open for a week — same as step 01. A real rescue window: top it up and it's back to normal, nothing lost.",
     tone: "text-blood-bright",
   },
   {
     n: "04",
     title: "Snapshot",
-    body: "If grace expires with no top-up, we take one last read of every real balance the chain had — every wallet, every token — and publish it on the home chain as a cryptographic commitment (a Merkle root). The chain's infrastructure is torn down right after.",
+    body: "If grace expires unfunded, we take one last read of every real balance — every wallet, every token — and publish it on the home chain as a Merkle root. Infrastructure is torn down right after.",
     tone: "text-bone-dim",
   },
   {
     n: "05",
     title: "Claim window (30 days)",
-    body: "Anyone who had funds on the chain can look up their wallet and withdraw exactly what the snapshot shows — proven against that published root, so it can't be faked or altered after the fact.",
+    body: "Anyone with funds on the chain can look up their wallet and withdraw exactly what the snapshot shows, proven against that root.",
     tone: "text-bone-dim",
   },
   {
     n: "06",
     title: "Swept",
-    body: "After 30 days, whatever's still unclaimed goes to the protocol. The chain itself is gone for good — but a brand new chain for the same token can always be created from scratch afterward.",
+    body: "Whatever's still unclaimed after 30 days goes to the protocol. The chain is gone for good — a new one for the same token can always be created from scratch.",
     tone: "text-bone-dim/50",
   },
 ];
 
 const RISKS = [
-  "This is unaudited, experimental software run by a small team — not a foundation, not a DAO.",
-  "The bridge is secured by a single relayer key we control, not a light client or a multisig. If that key is ever compromised, funds in the bridge are at risk.",
-  "The business itself could shut down, and any individual chain can be frozen or torn down — the grace period and snapshot process above are best-effort, not a guarantee.",
-  "Funds sitting in other protocols on top of a vampchain (DEXs, lending, anything you build or use there) are at extra risk if that chain is frozen or torn down.",
-  "Technical bugs are a real possibility in software this new. Treat everything you bridge in as money you could lose entirely.",
+  "Unaudited, experimental software run by a small team — not a foundation, not a DAO.",
+  "The bridge is secured by a single relayer key we control, not a light client or multisig. If that key is compromised, bridged funds are at risk.",
+  "The business could shut down, and any chain can be frozen or torn down — the grace period and snapshot process are best-effort, not a guarantee.",
+  "Funds in other protocols on top of a vampchain (DEXs, lending, anything you build there) carry extra risk if that chain is frozen or torn down.",
+  "Bugs are a real possibility in software this new. Treat everything you bridge in as money you could lose entirely.",
 ];
 
 export default async function HowItWorksPage() {
@@ -85,86 +85,75 @@ export default async function HowItWorksPage() {
       <p className="font-mono text-xs uppercase tracking-[0.2em] text-blood">The full picture</p>
       <h1 className="text-display mt-2 text-4xl text-bone sm:text-5xl">How Vampchain works</h1>
       <p className="mt-4 max-w-xl text-base text-bone-dim/70">
-        What you get for the fee, what you earn for funding it, and exactly what happens if a
-        chain&apos;s funding ever runs out.
+        What you get for the fee, what you earn from it, and what happens if funding runs out.
       </p>
 
       <FangDivider className="mt-12" />
 
       <Section eyebrow="The model" title="Pay once a year, get a whole chain">
         <p>
-          Pick any existing ERC20 on Base. Pay the current annual fee —{" "}
-          <span className="font-mono text-bone">${formatUsdc(defaultAnnualFee)}</span> in USDC right
-          now, though this is owner-adjustable and never changes retroactively for a chain already
-          created — and we spin up a single-node EVM sidechain that uses your token as its native
-          gas currency. It&apos;s a real chain: real RPC, real blocks, real transactions, running on
-          Fly.io within seconds of payment.
+          Pick any existing ERC20 on Base, Ethereum, or Robinhood Chain. Pay the annual fee —
+          currently <span className="font-mono text-bone">${formatUsdc(defaultAnnualFee)}</span>{" "}
+          in USDC on every chain, though each one&apos;s fee is set independently and can change —
+          and we spin up a single-node EVM chain that runs on your token as gas. It&apos;s real:
+          real RPC, real blocks, real transactions, usually live well under a minute after
+          payment. The fee never changes retroactively for a chain that already exists.
         </p>
         <p>
-          The fee is drawn down linearly the whole time the chain runs, and it&apos;s fully
-          public — anyone can watch a chain&apos;s remaining runway and top it up, whether or not
-          they created it. That&apos;s deliberate: nobody, including us, can ever charge for time
-          that hasn&apos;t been served yet.
+          The fee drains linearly over the year, and it&apos;s fully public — anyone can top up a
+          chain&apos;s runway, not just its creator. Nobody, including us, can ever charge for time
+          not yet served.
         </p>
       </Section>
 
       <Section eyebrow="Creator incentives" title="Fund it, and it pays you back">
         <p>
-          Every transaction on a vampchain spends a small amount of gas, denominated in that
-          chain&apos;s own token. That gas splits into two pieces: a priority fee (a tip to
-          whoever produces the block) and a base fee (destroyed outright, per standard Ethereum
-          rules). We recapture both — the tip directly, the base fee through an exact on-chain
-          accounting mechanism — and split the total <strong className="text-bone">three ways:
-          a third to the chain&apos;s creator, a third to the protocol, and a third straight back
-          into keeping the chain funded</strong>, automatically, for as long as the chain is
-          alive.
+          Every transaction spends gas in the chain&apos;s own token — split into a priority fee
+          (a tip to the block producer) and a base fee (burned outright, standard Ethereum rules).
+          We recapture both and split the total{" "}
+          <strong className="text-bone">
+            three ways, automatically, for as long as the chain runs: a third to the creator, a
+            third to the protocol, a third back into the chain&apos;s own funding
+          </strong>
+          .
         </p>
         <div className="rounded-2xl border border-hairline bg-ink-raised p-5 sm:p-6">
           <p className="font-mono text-xs uppercase tracking-[0.2em] text-blood">Worked example</p>
           <p className="mt-3 text-bone-dim/80">
-            Say your chain sees enough activity in a month to generate the equivalent of{" "}
-            <span className="font-mono text-bone">$90</span> in gas fees. You get{" "}
-            <span className="font-mono text-emerald-300">$30</span>, we get{" "}
-            <span className="font-mono text-bone-dim">$30</span>, and{" "}
-            <span className="font-mono text-blood-bright">$30</span> goes toward this chain&apos;s
-            own runway — paid out directly in your chain&apos;s own token, claimable any time, on
-            top of whatever the token itself is worth. A quiet chain with almost no traffic earns
-            almost nothing; a genuinely popular one keeps paying its creator indefinitely, not
-            just once at creation.
+            Say your chain generates <span className="font-mono text-bone">$90</span> in gas fees
+            this month. You get <span className="font-mono text-emerald-300">$30</span>, we get{" "}
+            <span className="font-mono text-bone-dim">$30</span>,{" "}
+            <span className="font-mono text-blood-bright">$30</span>{" "}
+            goes to its runway — paid in your chain&apos;s own token, claimable any time, on top of
+            whatever the token&apos;s worth. A quiet chain earns almost nothing; a popular one pays
+            its creator indefinitely, not just once at creation.
           </p>
         </div>
         <p>
-          This is on top of the one-time creation fee, not instead of it — the annual fee covers
-          our infrastructure cost; the fee split is the actual, ongoing reward for having funded
-          and grown a chain.
+          This is on top of the annual fee, not instead of it — the fee covers our
+          infrastructure; the split is the ongoing reward for growing a chain.
         </p>
       </Section>
 
       <Section eyebrow="User incentives" title="Using a chain keeps it alive">
         <p>
-          Bridging into an obscure, unproven chain is a real risk — the thing you&apos;re actually
-          risking isn&apos;t losing money to a bad trade, it&apos;s the chain itself flatlining.
-          So the runway third above goes to a wallet that&apos;s completely separate from the
-          protocol&apos;s own share, earmarked to be converted and topped back into a chain&apos;s
-          funding on a best-effort basis. In other words: the more a chain gets used, the more
-          directly its own users are extending its life. Every chain page shows exactly how much
-          that runway wallet is currently holding for it and how much has actually been delivered
-          so far — a live, independently-checkable number, not just a promise.
+          Bridging into an obscure chain is a real risk — not losing a trade, but the chain
+          flatlining. That&apos;s what the runway third above is for: it goes to a wallet kept
+          separate from the protocol&apos;s own share, earmarked for conversion back into that
+          chain&apos;s funding on a best-effort basis. The more a chain gets used, the more its own
+          users extend its life. Every chain page shows exactly how much that wallet is holding
+          and how much it&apos;s actually delivered — live and checkable, not just promised.
         </p>
         <p>
-          We also track — and publicly show, per chain — exactly how much real gas every wallet
-          has ever spent there. We call it <strong className="text-bone">blood given</strong>.
-          There&apos;s no cash payout attached to it; it&apos;s a leaderboard, a badge of honor for
-          the people actually keeping a chain&apos;s lights on. Check any chain&apos;s page for its
-          top donors.
+          We also track, and publicly show, how much real gas every wallet has spent per chain —
+          we call it <strong className="text-bone">blood given</strong>. No payout, just a
+          leaderboard: credit for whoever&apos;s actually keeping a chain&apos;s lights on. Check
+          any chain&apos;s page for its top donors.
         </p>
       </Section>
 
       <Section eyebrow="Chain lifecycle" title="What happens if funding runs out">
-        <p>
-          A vampchain doesn&apos;t just vanish the moment its paid runway hits zero. Here&apos;s
-          the full sequence, end to end:
-        </p>
+        <p>A vampchain doesn&apos;t vanish the moment its paid runway hits zero. Here&apos;s the sequence:</p>
         <ol className="mt-2 space-y-5">
           {LIFECYCLE_STEPS.map((step) => (
             <li key={step.n} className="flex gap-4">
@@ -177,7 +166,7 @@ export default async function HowItWorksPage() {
           ))}
         </ol>
         <p className="pt-2">
-          Already on the receiving end of a teardown?{" "}
+          Chain torn down?{" "}
           <Link href="/claim" className="text-bone underline underline-offset-2 hover:text-blood-bright">
             Look up your wallet
           </Link>{" "}
