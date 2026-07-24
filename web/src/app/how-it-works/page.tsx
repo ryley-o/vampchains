@@ -29,13 +29,13 @@ function Section({
 const LIFECYCLE_STEPS = [
   {
     n: "01",
-    title: "Active",
+    title: "Alive",
     body: "Fully funded and running — deposits, minting, top-ups, everything works. Anyone can extend the runway; that's the public anti-rug mechanism.",
     tone: "text-emerald-300",
   },
   {
     n: "02",
-    title: "Runway runs out",
+    title: "Running on fumes",
     body: "Paid runway hits zero. The chain doesn't shut off — it moves into a one-week grace period.",
     tone: "text-amber-300",
   },
@@ -59,8 +59,8 @@ const LIFECYCLE_STEPS = [
   },
   {
     n: "06",
-    title: "Swept",
-    body: "Whatever's still unclaimed after 30 days goes to the protocol. The chain is gone for good — a new one for the same token can always be created from scratch.",
+    title: "Gone for good",
+    body: "Whatever's still unclaimed after 30 days goes to the protocol. This chain doesn't come back — but a new one for the same token can always rise from scratch.",
     tone: "text-bone-dim/50",
   },
 ];
@@ -85,22 +85,19 @@ export default async function HowItWorksPage() {
       <p className="font-mono text-xs uppercase tracking-[0.2em] text-blood">The full picture</p>
       <h1 className="text-display mt-2 text-4xl text-bone sm:text-5xl">How Vampchain works</h1>
       <p className="mt-4 max-w-xl text-base text-bone-dim/70">
-        What you get for the fee, what you earn from it, and what happens if funding runs out.
+        What you get, what you earn from it, and what happens if the blood ever runs dry.
       </p>
 
       <FangDivider className="mt-12" />
 
-      <Section eyebrow="The model" title="Pay by the week, get a whole chain">
+      <Section eyebrow="The model" title="Create your own whole chain universe">
         <p>
-          Pick any existing ERC20 on Base, Ethereum, or Robinhood Chain. The rate is{" "}
-          <span className="font-mono text-bone">${formatUsdc(defaultAnnualFee / 52n)}/week</span> in USDC — fund at
-          least two weeks (about{" "}
-          <span className="font-mono text-bone">${formatUsdc((defaultAnnualFee / 52n) * 2n)}</span>) to start, or as
-          many weeks as you like — and we spin up a single-node EVM chain that runs on your token as gas. It&apos;s
-          real: real RPC, real blocks, real transactions, usually live well under a minute after payment.
+          Grab any ERC20 on Base, Ethereum, or Robinhood Chain — yours, a friend&apos;s, that coin
+          someone aped into at 3am — and it becomes the native gas of its own real chain. Real
+          RPC, real blocks, real transactions, alive in under a minute.
         </p>
         <p>
-          Every chain also gets its own page on{" "}
+          Every chain gets its own home on{" "}
           <a
             href="https://scan.vampchain.com"
             target="_blank"
@@ -108,18 +105,21 @@ export default async function HowItWorksPage() {
             className="font-mono text-bone underline underline-offset-2 hover:text-blood-bright"
           >
             scan.vampchain.com
-          </a>
-          , our block explorer — live blocks and transactions, address lookups, and contract
-          verification with source viewing, the same tools you&apos;d expect on any real chain.
+          </a>{" "}
+          too — live blocks, transactions, address lookups, and contract verification. A real
+          explorer for a real chain, not a toy.
         </p>
         <p>
-          Your funding drains linearly, and it&apos;s fully public — anyone can top up a chain&apos;s runway, not
-          just its creator. Nobody, including us, can charge for time not yet served. A low entry point (a couple
-          weeks, not a year) is the whole idea: try a chain for your token without committing much.
+          Keeping it alive costs a little blood — a small weekly fee, low enough to try something
+          without swearing a blood oath. Anyone can top it up, not just the creator, and funding
+          drains linearly and publicly: nobody, including us, can ever charge you for time you
+          haven&apos;t used yet.
         </p>
         <p className="text-xs text-bone-dim/40">
-          Exact fee mechanics — including the rare cases where we&apos;d adjust an existing
-          chain&apos;s rate — are in the{" "}
+          <span className="font-mono text-bone-dim/60">${formatUsdc(defaultAnnualFee / 52n)}/week</span>, two weeks
+          minimum to start (
+          <span className="font-mono text-bone-dim/60">${formatUsdc((defaultAnnualFee / 52n) * 2n)}</span>) — or fund
+          as many weeks as you like. Exact numbers, and the rare cases we&apos;d change them, live in the{" "}
           <Link href="/terms" className="underline underline-offset-2 hover:text-bone-dim/70">
             terms
           </Link>
@@ -127,14 +127,13 @@ export default async function HowItWorksPage() {
         </p>
       </Section>
 
-      <Section eyebrow="Creator incentives" title="Fund it, and it pays you back">
+      <Section eyebrow="Creator incentives" title="It feeds you back, forever">
         <p>
-          Every transaction spends gas in the chain&apos;s own token — split into a priority fee
-          (a tip to the block producer) and a base fee (burned outright, standard Ethereum rules).
-          We recapture both and split the total{" "}
+          Every transaction on your chain spills a little blood — gas fees. We catch every drop
+          and split it{" "}
           <strong className="text-bone">
-            three ways, automatically, for as long as the chain runs: a third to the creator, a
-            third to the protocol, a third back into the chain&apos;s own funding
+            three ways, automatically, forever: a third to you, a third to the protocol, a third
+            back into keeping the chain alive
           </strong>
           .
         </p>
@@ -147,12 +146,12 @@ export default async function HowItWorksPage() {
             <span className="font-mono text-blood-bright">$30</span>{" "}
             goes to its runway — paid in your chain&apos;s own token, claimable any time, on top of
             whatever the token&apos;s worth. A quiet chain earns almost nothing; a popular one pays
-            its creator indefinitely, not just once at creation.
+            its creator forever, not just once at creation.
           </p>
         </div>
         <p>
-          This is on top of the annual fee, not instead of it — the fee covers our
-          infrastructure; the split is the ongoing reward for growing a chain.
+          This is on top of the fee, not instead of it — the fee covers our infrastructure; the
+          split is the ongoing reward for growing a chain.
         </p>
         <p>
           Curious how the revenue actually adds up and gets claimed?{" "}
@@ -166,25 +165,25 @@ export default async function HowItWorksPage() {
         </p>
       </Section>
 
-      <Section eyebrow="User incentives" title="Using a chain keeps it alive">
+      <Section eyebrow="User incentives" title="Use it. Keep it breathing.">
         <p>
           Bridging into an obscure chain is a real risk — not losing a trade, but the chain
           flatlining. That&apos;s what the runway third above is for: it goes to a wallet kept
           separate from the protocol&apos;s own share, earmarked for conversion back into that
-          chain&apos;s funding on a best-effort basis. The more a chain gets used, the more its own
-          users extend its life. Every chain page shows exactly how much that wallet is holding
-          and how much it&apos;s actually delivered — live and checkable, not just promised.
+          chain&apos;s funding on a best-effort basis. The more a chain gets used, the longer it
+          stays alive. Every chain page shows exactly how much that wallet is holding and how
+          much it&apos;s actually delivered — live and checkable, not just promised.
         </p>
         <p>
           We also track, and publicly show, how much real gas every wallet has spent per chain —
           we call it <strong className="text-bone">blood given</strong>. No payout, just a
-          leaderboard: credit for whoever&apos;s actually keeping a chain&apos;s lights on. Check
-          any chain&apos;s page for its top donors.
+          leaderboard: credit for whoever&apos;s actually keeping a chain&apos;s heart beating.
+          Check any chain&apos;s page for its top donors.
         </p>
       </Section>
 
-      <Section eyebrow="Chain lifecycle" title="What happens if funding runs out">
-        <p>A vampchain doesn&apos;t vanish the moment its paid runway hits zero. Here&apos;s the sequence:</p>
+      <Section eyebrow="Chain lifecycle" title="What happens when the blood runs dry">
+        <p>A vampchain doesn&apos;t just die the second its runway hits zero. Here&apos;s exactly what happens:</p>
         <ol className="mt-2 space-y-5">
           {LIFECYCLE_STEPS.map((step) => (
             <li key={step.n} className="flex gap-4">

@@ -16,17 +16,17 @@ const STEPS = [
   {
     n: "01",
     title: "Pick a token",
-    body: "Any ERC20 on Base already qualifies. Yours, a friend's, that coin you found on a dead Telegram at 3am.",
+    body: "Any ERC20 already qualifies. Yours, a friend's, that coin you found on a dead Telegram at 3am.",
   },
   {
     n: "02",
-    title: "Fund a few weeks",
-    body: "Pay by the week in USDC (two-week minimum), drawn down linearly. Nobody can charge you for runway you haven't used yet.",
+    title: "Feed it a little blood",
+    body: "A small weekly fee keeps the lights on. Burn through it at your own pace, top up whenever — nobody can ever charge you for blood you haven't spent yet.",
   },
   {
     n: "03",
     title: "It's alive",
-    body: "A single-node EVM chain spins up in seconds, running on your token as native gas. Bridge in, go build.",
+    body: "A real EVM chain spins up in seconds, running on your token as native gas. Bridge in, go build.",
   },
 ];
 
@@ -55,11 +55,11 @@ export default async function HomePage() {
           <h1 className="text-display mt-5 max-w-3xl text-5xl text-bone sm:text-7xl">
             Pick a token.
             <br />
-            <span className="text-glow text-blood">Get a chain.</span>
+            <span className="text-glow text-blood">Give it fangs.</span>
           </h1>
           <p className="mt-6 max-w-xl text-lg text-bone-dim/80">
-            Any existing ERC20 can become the native gas of its own single-node EVM sidechain.
-            Bridge it in, and you&apos;ve got a whole little universe running on your token.
+            Any ERC20 can become the native gas of its own real chain. Bridge it in, and
+            you&apos;ve got a whole little universe running on your token.
           </p>
           <div className="mt-9 flex flex-wrap items-center gap-4">
             <Link
@@ -116,8 +116,8 @@ export default async function HomePage() {
           ))}
         </div>
         <p className="mt-10 text-sm text-bone-dim/50">
-          You also earn from it, forever — and there&apos;s a real, honest answer for what
-          happens if funding ever runs out.{" "}
+          You also earn from it, forever — and yes, there&apos;s an honest answer for what
+          happens if the blood ever runs dry.{" "}
           <Link href="/how-it-works" className="text-blood underline underline-offset-2 hover:text-blood-bright">
             See how it all works →
           </Link>

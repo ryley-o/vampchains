@@ -20,7 +20,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://vampchain.com"),
   title: "Vampchain — turn any token into its own chain",
   description:
-    "Pick an existing ERC20. Pay an annual fee. Get a single-node EVM sidechain that uses your token as native gas. The chain is the meme.",
+    "Pick a token. Give it a pulse. A real EVM chain that runs on your own token as native gas — the chain is the meme.",
   icons: { icon: "/brand/favicon.svg" },
   openGraph: {
     title: "Vampchain",
