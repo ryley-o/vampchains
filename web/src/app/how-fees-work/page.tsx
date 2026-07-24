@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { FangDivider } from "@/components/brand/FangDivider";
+import { FeeCheckpointDiagram } from "@/components/FeeCheckpointDiagram";
 
 export const dynamic = "force-static";
 
@@ -11,10 +12,6 @@ function Section({ eyebrow, title, children }: { eyebrow: string; title: string;
       <div className="mt-6 space-y-4 text-sm leading-relaxed text-bone-dim/80 sm:text-base">{children}</div>
     </section>
   );
-}
-
-function Dot({ className = "" }: { className?: string }) {
-  return <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${className}`} />;
 }
 
 function TwoRevenueStreamsDiagram() {
@@ -48,11 +45,12 @@ function TwoRevenueStreamsDiagram() {
         </div>
         <div className="mt-3 flex items-center justify-between text-xs text-bone-dim/60">
           <span>Every transaction</span>
-          <span>Destroyed, not pooled</span>
+          <span>Destroyed on the vampchain</span>
         </div>
         <p className="mt-4 text-sm text-bone-dim/70">
-          The rest of the gas fee is destroyed outright — standard Ethereum rules. Nothing sits
-          anywhere, but we keep an exact running count of it too.
+          The rest of the gas fee is destroyed outright — standard Ethereum rules. Burning it on the
+          vampchain frees up an exactly-equal amount of backing on the base chain, which becomes real
+          funding. We keep an exact running count of it too.
         </p>
       </div>
     </div>
@@ -88,53 +86,30 @@ function SplitDiagram() {
   );
 }
 
-function TimelineDiagram() {
-  return (
-    <div className="rounded-2xl border border-hairline bg-ink-raised p-5 sm:p-6">
-      <div className="flex items-center justify-between gap-3">
-        <p className="flex items-center gap-2 font-mono text-xs uppercase tracking-[0.2em] text-emerald-300">
-          <Dot className="bg-emerald-300" /> Tips
-        </p>
-        <p className="flex items-center gap-2 font-mono text-xs uppercase tracking-[0.2em] text-blood-bright">
-          Base fee <Dot className="bg-blood-bright" />
-        </p>
-      </div>
-
-      {/* Both streams flow into one growing bar — a single running total. */}
-      <div className="relative mt-4 h-1.5 overflow-hidden rounded-full bg-charcoal-soft">
-        <div className="animate-grow-x h-full w-full bg-gradient-to-r from-emerald-300 to-blood-bright" />
-        <span className="animate-marker-pulse absolute right-0 top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-blood" />
-      </div>
-      <div className="mt-3 flex items-center justify-between text-xs text-bone-dim/60">
-        <span>Every transaction, forever</span>
-        <span>One running total</span>
-      </div>
-
-      <p className="mt-4 text-sm text-bone-dim/70">
-        Both add into one running total that only goes up. To claim, you show the current total and
-        the contract pays out whatever hasn&apos;t been paid yet — so one transaction always settles
-        everything you&apos;re owed, whether you claim after a day or a year. Because it tracks the
-        total paid rather than any single receipt, the same revenue can never be paid twice.
-      </p>
-    </div>
-  );
-}
-
 export default function HowFeesWorkPage() {
   return (
     <div className="mx-auto max-w-3xl px-5 py-14 sm:py-16">
       <p className="font-mono text-xs uppercase tracking-[0.2em] text-blood">The mechanics</p>
       <h1 className="text-display mt-2 text-4xl text-bone sm:text-5xl">How fees actually work</h1>
       <p className="mt-4 max-w-xl text-base text-bone-dim/70">
-        Every transaction on a vampchain generates two kinds of real revenue. Here&apos;s where each
-        one goes, and when it&apos;s actually claimable.
+        Every transaction on a vampchain generates revenue. It&apos;s made two different ways on the
+        vampchain — but by the time it&apos;s yours to withdraw on the base chain, it&apos;s one pool.
       </p>
 
       <FangDivider className="mt-12" />
 
-      <Section eyebrow="Two kinds of revenue" title="A tip, and a burn">
-        <p>Gas on a vampchain splits into two pieces, and they behave completely differently.</p>
+      <Section eyebrow="Where it comes from" title="Two sources, one pool">
+        <p>
+          Gas on a vampchain has two parts, generated the ordinary Ethereum way — a tip and a base
+          fee. They&apos;re handled differently on the vampchain, but both end up as the exact same
+          thing: withdrawable revenue on the base chain.
+        </p>
         <TwoRevenueStreamsDiagram />
+        <p>
+          So the tip/base-fee distinction only matters for <em>how it&apos;s created</em>. Once
+          it&apos;s revenue you can withdraw, it&apos;s a single number — that&apos;s all the rest of
+          this page is about.
+        </p>
       </Section>
 
       <Section eyebrow="Split three ways" title="Every claim pays three parties, automatically">
@@ -151,13 +126,20 @@ export default function HowFeesWorkPage() {
         </p>
       </Section>
 
-      <Section eyebrow="One counter, one claim" title="It all adds into a single number">
+      <Section eyebrow="One counter, one claim" title="How the running total works">
         <p>
-          Here&apos;s the part that makes this simple: both kinds of revenue feed one running total
-          that only ever grows. You never chase individual payments or race a deadline — claim after
-          a day or after a year, it&apos;s always exactly one transaction for everything owed.
+          Your revenue is one number that only ever goes up. Two lines matter: the <strong className="text-bone">total
+          earned</strong> so far, and how much has <strong className="text-bone">already been paid out</strong>. What
+          you can claim right now is simply the gap between them — and one transaction always takes the
+          whole gap, whether you claim after a day or a year.
         </p>
-        <TimelineDiagram />
+        <p>Press the buttons: let time pass, then claim, and watch the paid-out line jump up to meet the total.</p>
+        <FeeCheckpointDiagram />
+        <p>
+          Both lines live on the same scale, counted from the same zero. The contract stores only the
+          paid-out line and pays you the distance up to what your receipt shows — so it can never pay
+          past the top, and the same revenue can never come out twice.
+        </p>
       </Section>
 
       <Section eyebrow="Who actually does this" title="Anyone can press the button — and that's safe">
