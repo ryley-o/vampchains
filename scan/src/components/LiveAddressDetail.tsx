@@ -9,6 +9,8 @@ import { GENESIS_CONTRACTS } from "@vampchains/contract-abis";
 import { getHomeChainById } from "@vampchains/chains";
 import { formatTokenAmount, shortAddress, shortHash, timeAgo } from "@/lib/format";
 import { VerifiedContractTabs } from "@/components/VerifiedContractTabs";
+import { AddressChip } from "@/components/AddressChip";
+import { CopyButton } from "@/components/CopyButton";
 import type { StandardJsonSources } from "@/lib/standardJsonInput";
 
 interface VerifiedContractMeta {
@@ -207,15 +209,19 @@ export function LiveAddressDetail({
                     </Link>
                   </td>
                   <td className="py-2.5">
-                    <Link href={`/${evmChainId}/address/${t.from}`} className="font-mono text-xs text-bone-dim hover:text-blood-bright">
-                      {shortAddress(t.from)}
-                    </Link>
+                    <AddressChip
+                      address={t.from}
+                      href={`/${evmChainId}/address/${t.from}`}
+                      linkClassName="text-xs text-bone-dim hover:text-blood-bright"
+                    />
                   </td>
                   <td className="py-2.5">
                     {t.to ? (
-                      <Link href={`/${evmChainId}/address/${t.to}`} className="font-mono text-xs text-bone-dim hover:text-blood-bright">
-                        {shortAddress(t.to)}
-                      </Link>
+                      <AddressChip
+                        address={t.to}
+                        href={`/${evmChainId}/address/${t.to}`}
+                        linkClassName="text-xs text-bone-dim hover:text-blood-bright"
+                      />
                     ) : (
                       <span className="font-mono text-xs text-bone-dim/40">contract creation</span>
                     )}
@@ -264,14 +270,18 @@ export function LiveAddressDetail({
                       </Link>
                     </td>
                     <td className="py-2.5">
-                      <Link href={`/${evmChainId}/address/${t.from}`} className="font-mono text-xs text-bone-dim hover:text-blood-bright">
-                        {shortAddress(t.from)}
-                      </Link>
+                      <AddressChip
+                        address={t.from}
+                        href={`/${evmChainId}/address/${t.from}`}
+                        linkClassName="text-xs text-bone-dim hover:text-blood-bright"
+                      />
                     </td>
                     <td className="py-2.5">
-                      <Link href={`/${evmChainId}/address/${t.to}`} className="font-mono text-xs text-bone-dim hover:text-blood-bright">
-                        {shortAddress(t.to)}
-                      </Link>
+                      <AddressChip
+                        address={t.to}
+                        href={`/${evmChainId}/address/${t.to}`}
+                        linkClassName="text-xs text-bone-dim hover:text-blood-bright"
+                      />
                     </td>
                     <td className="py-2.5 font-mono text-xs text-bone-dim/70">
                       {wrappedTokenMeta ? formatTokenAmount(t.value, wrappedTokenMeta.decimals) : t.value.toString()}
@@ -360,14 +370,17 @@ function RecognitionPanel({
               {wrappedTokenMeta.symbol}),{" "}
               {wrappedTokenMeta.decimals} decimals — wraps L1 token{" "}
               {homeChain ? (
-                <a
-                  href={`${homeChain.blockExplorerUrl}/address/${wrappedTokenMeta.l1Token}`}
-                  className="text-blood underline underline-offset-2 hover:text-blood-bright"
-                >
-                  {shortAddress(wrappedTokenMeta.l1Token)} on {homeChain.name} →
-                </a>
+                <>
+                  <a
+                    href={`${homeChain.blockExplorerUrl}/address/${wrappedTokenMeta.l1Token}`}
+                    className="text-blood underline underline-offset-2 hover:text-blood-bright"
+                  >
+                    {shortAddress(wrappedTokenMeta.l1Token)} on {homeChain.name} →
+                  </a>{" "}
+                  <CopyButton value={wrappedTokenMeta.l1Token} />
+                </>
               ) : (
-                shortAddress(wrappedTokenMeta.l1Token)
+                <AddressChip address={wrappedTokenMeta.l1Token} className="text-bone-dim/60" />
               )}
             </p>
           )}

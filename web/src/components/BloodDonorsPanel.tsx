@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@vampchains/db";
-import { formatTokenAmount, shortAddress } from "@/lib/format";
+import { formatTokenAmount } from "@/lib/format";
+import { AddressChip } from "@/components/AddressChip";
 
 /// "Blood given" leaderboard for one chain — top addresses by real gas
 /// spent (tip + burned base fee both, everything a wallet actually paid),
@@ -35,7 +36,7 @@ export async function BloodDonorsPanel({
         >
           <div className="flex items-center gap-3">
             <span className="font-mono text-xs text-bone-dim/40">#{i + 1}</span>
-            <span className="font-mono text-sm text-bone">{shortAddress(row.address)}</span>
+            <AddressChip address={row.address} className="text-sm text-bone" />
           </div>
           <span className="font-mono text-sm text-blood-bright">
             {formatTokenAmount(row.amount, 18)} <span className="text-bone-dim/50">${symbol}</span>

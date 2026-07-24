@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { Block } from "viem";
 import { getChainClient } from "@/lib/gatewayClient";
-import { shortAddress, shortHash, timeAgo } from "@/lib/format";
+import { shortHash, timeAgo } from "@/lib/format";
+import { AddressChip } from "@/components/AddressChip";
 
 export function LiveBlockDetail({ evmChainId, blockNumber }: { evmChainId: string; blockNumber: string }) {
   const [block, setBlock] = useState<Block | null>(null);
@@ -62,7 +63,14 @@ export function LiveBlockDetail({ evmChainId, blockNumber }: { evmChainId: strin
         </div>
         <div>
           <dt className="text-bone-dim/50">Miner (Clique signer)</dt>
-          <dd className="mt-1 font-mono text-bone">{block.miner}</dd>
+          <dd className="mt-1">
+            <AddressChip
+              address={block.miner}
+              href={`/${evmChainId}/address/${block.miner}`}
+              short={false}
+              linkClassName="text-bone hover:text-blood-bright"
+            />
+          </dd>
         </div>
         <div>
           <dt className="text-bone-dim/50">Transactions</dt>
@@ -94,15 +102,19 @@ export function LiveBlockDetail({ evmChainId, blockNumber }: { evmChainId: strin
                       </Link>
                     </td>
                     <td className="py-2.5">
-                      <Link href={`/${evmChainId}/address/${tx.from}`} className="font-mono text-xs text-bone-dim hover:text-blood-bright">
-                        {shortAddress(tx.from)}
-                      </Link>
+                      <AddressChip
+                        address={tx.from}
+                        href={`/${evmChainId}/address/${tx.from}`}
+                        linkClassName="text-xs text-bone-dim hover:text-blood-bright"
+                      />
                     </td>
                     <td className="py-2.5">
                       {tx.to ? (
-                        <Link href={`/${evmChainId}/address/${tx.to}`} className="font-mono text-xs text-bone-dim hover:text-blood-bright">
-                          {shortAddress(tx.to)}
-                        </Link>
+                        <AddressChip
+                          address={tx.to}
+                          href={`/${evmChainId}/address/${tx.to}`}
+                          linkClassName="text-xs text-bone-dim hover:text-blood-bright"
+                        />
                       ) : (
                         <span className="font-mono text-xs text-bone-dim/40">contract creation</span>
                       )}

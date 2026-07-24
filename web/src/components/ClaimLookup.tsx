@@ -5,6 +5,7 @@ import { isAddress, zeroAddress } from "viem";
 import { useAccount, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { BRIDGE_ABI, requireHomeChainWebConfig } from "@/lib/contracts";
 import { formatTokenAmount, shortAddress } from "@/lib/format";
+import { AddressChip } from "@/components/AddressChip";
 
 interface Claim {
   chainId: string;
@@ -31,9 +32,15 @@ function ClaimRow({ claim, lookupAddress }: { claim: Claim; lookupAddress: `0x${
           {claim.chainName} <span className="font-mono text-bone-dim/50">(${claim.chainSymbol})</span>{" "}
           <span className="text-bone-dim/40">· {homeChain.name}</span>
         </p>
-        <p className="mt-0.5 font-mono text-xs text-bone-dim/50">
+        <p className="mt-0.5 flex flex-wrap items-center gap-1 font-mono text-xs text-bone-dim/50">
           {isNative ? formatTokenAmount(BigInt(claim.amount), 18) : `${claim.amount} raw units`}{" "}
-          {isNative ? `$${claim.chainSymbol}` : `of ${shortAddress(claim.token)}`}
+          {isNative ? (
+            `$${claim.chainSymbol}`
+          ) : (
+            <>
+              of <AddressChip address={claim.token} />
+            </>
+          )}
         </p>
       </div>
       {claim.claimed || confirmed ? (

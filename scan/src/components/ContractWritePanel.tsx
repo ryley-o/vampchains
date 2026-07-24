@@ -6,7 +6,7 @@ import type { Abi, AbiFunction } from "viem";
 import { createWalletClient, custom, defineChain } from "viem";
 import { getChainClient } from "@/lib/gatewayClient";
 import { connectInjectedWallet, ensureWalletOnChain, getInjectedEthereum } from "@/lib/injectedWallet";
-import { shortAddress } from "@/lib/format";
+import { AddressChip } from "@/components/AddressChip";
 
 /// Wallet-connected writes via a plain EIP-1193 provider — see
 /// injectedWallet.ts for why this doesn't pull in wagmi. Every call here
@@ -70,7 +70,9 @@ export function ContractWritePanel({
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-bone-dim/50">Connected: {shortAddress(account)}</p>
+      <p className="flex items-center gap-1.5 text-xs text-bone-dim/50">
+        Connected: <AddressChip address={account} />
+      </p>
       {writeFns.map((fn, i) => (
         <WriteFunctionRow
           key={`${fn.name}-${i}`}

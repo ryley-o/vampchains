@@ -1,7 +1,8 @@
 import "server-only";
 import type { Address } from "viem";
 import { getRunwayDeliveredTotal, getRunwayTreasuryBalance } from "@/lib/runwayReads";
-import { formatTokenAmount, formatUsdc, shortAddress } from "@/lib/format";
+import { formatTokenAmount, formatUsdc } from "@/lib/format";
+import { AddressChip } from "@/components/AddressChip";
 
 /// Shows exactly what the "runway third" of gas-fee revenue (see
 /// VampBridge.sol's three-way split) has actually done for this chain —
@@ -40,9 +41,9 @@ export async function RunwayCommitmentPanel({
       <div>
         <p className="text-sm text-bone-dim/60">
           A third of every gas-fee claim on this chain goes to a dedicated runway wallet{" "}
-          <span className="font-mono text-bone-dim">{shortAddress(runwayTreasury)}</span>, separate from the
-          protocol&apos;s own share — earmarked to be converted to USDC and topped back into this chain&apos;s
-          funding, on a best-effort basis.
+          <AddressChip address={runwayTreasury} className="text-bone-dim" />, separate from the protocol&apos;s
+          own share — earmarked to be converted to USDC and topped back into this chain&apos;s funding, on a
+          best-effort basis.
         </p>
       </div>
       <div className="flex gap-6">

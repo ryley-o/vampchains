@@ -3,7 +3,8 @@ import Link from "next/link";
 import { prisma } from "@vampchains/db";
 import { getOnchainChain, getProtocolTreasury, getRemainingRuntime, getRunwayTreasury } from "@/lib/registryReads";
 import { getFeeRevenueClaimed, getOutstandingFeeRevenue } from "@/lib/bridgeReads";
-import { formatTokenAmount, formatUsdc, shortAddress } from "@/lib/format";
+import { formatTokenAmount, formatUsdc } from "@/lib/format";
+import { AddressChip } from "@/components/AddressChip";
 import { GATEWAY_URL, getHomeChainWebConfig } from "@/lib/contracts";
 import { StatusPill } from "@/components/StatusPill";
 import { TokenLogo } from "@/components/TokenLogo";
@@ -130,9 +131,9 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ev
               Vampchain #{dbChain.evmChainId.toString()} · from {homeConfig?.name ?? `chain ${homeChainId}`}
             </p>
             <h1 className="text-display mt-1.5 text-4xl text-bone sm:text-5xl">{dbChain.name}</h1>
-            <p className="mt-3 text-sm text-bone-dim/60">
+            <p className="mt-3 flex flex-wrap items-center gap-1 text-sm text-bone-dim/60">
               <span className="font-mono text-bone-dim">${dbChain.symbol}</span> · base token{" "}
-              <span className="font-mono">{shortAddress(dbChain.baseToken)}</span>
+              <AddressChip address={dbChain.baseToken} />
             </p>
           </div>
         </div>
@@ -191,8 +192,8 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ev
             <div>
               <p className="text-sm text-bone-dim/60">
                 Gas fees this chain generates split three ways between its creator{" "}
-                <span className="font-mono text-bone-dim">{shortAddress(onchain.creator)}</span>, the protocol, and
-                this chain&apos;s own runway — automatically, for as long as it&apos;s running.
+                <AddressChip address={onchain.creator} className="text-bone-dim" />, the protocol, and this
+                chain&apos;s own runway — automatically, for as long as it&apos;s running.
               </p>
               <p className="mt-1 text-xs text-bone-dim/40">
                 Total fee revenue (tips + base fee) claimed and paid out so far.

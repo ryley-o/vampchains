@@ -4,6 +4,7 @@ import { getAddress, isAddress } from "viem";
 import { prisma } from "@vampchains/db";
 import { ChainGate } from "@/components/ChainGate";
 import { LiveAddressDetail } from "@/components/LiveAddressDetail";
+import { CopyButton } from "@/components/CopyButton";
 import { GATEWAY_URL } from "@/lib/gatewayClient";
 import { extractSources } from "@/lib/standardJsonInput";
 
@@ -71,7 +72,10 @@ export default async function AddressDetailPage({
           ← {chain.name}
         </Link>
         <h1 className="text-display mt-1.5 break-all text-2xl text-bone sm:text-3xl">Address</h1>
-        <p className="mt-1 break-all font-mono text-sm text-bone-dim/50">{address}</p>
+        <p className="mt-1 flex items-center gap-1.5 break-all font-mono text-sm text-bone-dim/50">
+          {address}
+          <CopyButton value={address} />
+        </p>
       </div>
 
       <ChainGate status={chain.status}>

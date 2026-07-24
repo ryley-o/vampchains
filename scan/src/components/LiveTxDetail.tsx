@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { TransactionReceipt, Transaction } from "viem";
 import { getChainClient } from "@/lib/gatewayClient";
+import { AddressChip } from "@/components/AddressChip";
 
 export function LiveTxDetail({ evmChainId, txHash }: { evmChainId: string; txHash: `0x${string}` }) {
   const [tx, setTx] = useState<Transaction | null>(null);
@@ -61,24 +62,33 @@ export function LiveTxDetail({ evmChainId, txHash }: { evmChainId: string; txHas
         <div>
           <dt className="text-bone-dim/50">From</dt>
           <dd className="mt-1">
-            <Link href={`/${evmChainId}/address/${tx.from}`} className="break-all font-mono text-bone hover:text-blood-bright">
-              {tx.from}
-            </Link>
+            <AddressChip
+              address={tx.from}
+              href={`/${evmChainId}/address/${tx.from}`}
+              short={false}
+              linkClassName="break-all text-bone hover:text-blood-bright"
+            />
           </dd>
         </div>
         <div>
           <dt className="text-bone-dim/50">To</dt>
           <dd className="mt-1">
             {tx.to ? (
-              <Link href={`/${evmChainId}/address/${tx.to}`} className="break-all font-mono text-bone hover:text-blood-bright">
-                {tx.to}
-              </Link>
+              <AddressChip
+                address={tx.to}
+                href={`/${evmChainId}/address/${tx.to}`}
+                short={false}
+                linkClassName="break-all text-bone hover:text-blood-bright"
+              />
             ) : receipt.contractAddress ? (
-              <span className="break-all font-mono text-bone">
+              <span className="inline-flex items-center gap-1.5 break-all font-mono text-bone">
                 contract creation →{" "}
-                <Link href={`/${evmChainId}/address/${receipt.contractAddress}`} className="hover:text-blood-bright">
-                  {receipt.contractAddress}
-                </Link>
+                <AddressChip
+                  address={receipt.contractAddress}
+                  href={`/${evmChainId}/address/${receipt.contractAddress}`}
+                  short={false}
+                  linkClassName="hover:text-blood-bright"
+                />
               </span>
             ) : (
               <span className="text-bone-dim/40">—</span>
@@ -122,12 +132,12 @@ export function LiveTxDetail({ evmChainId, txHash }: { evmChainId: string; txHas
           <div className="mt-4 space-y-3">
             {receipt.logs.map((log, i) => (
               <div key={i} className="rounded-lg border border-hairline bg-charcoal-soft/40 p-3 text-xs">
-                <Link
+                <AddressChip
+                  address={log.address}
                   href={`/${evmChainId}/address/${log.address}`}
-                  className="font-mono text-bone-dim hover:text-blood-bright"
-                >
-                  {log.address}
-                </Link>
+                  short={false}
+                  linkClassName="text-bone-dim hover:text-blood-bright"
+                />
                 {log.topics.map((topic, j) => (
                   <p key={j} className="mt-1 break-all font-mono text-bone-dim/50">
                     topic[{j}]: {topic}

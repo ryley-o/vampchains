@@ -8,6 +8,7 @@ import { BRIDGE_ABI, BURN_ADDRESS, GATEWAY_URL, requireHomeChainWebConfig } from
 import { ERC20_ABI } from "@/lib/erc20Abi";
 import { makeVampchainChain } from "@/lib/viemClients";
 import { shortAddress } from "@/lib/format";
+import { CopyButton } from "@/components/CopyButton";
 
 function vampscanAddressUrl(evmChainId: bigint, address: Address): string {
   return `https://scan.vampchain.com/${evmChainId}/address/${address}`;
@@ -311,14 +312,15 @@ export function GeneralBridgeForm({
         />
 
         {predictedWrapped && (
-          <p className="mt-3 text-xs text-bone-dim/50">
+          <p className="mt-3 flex flex-wrap items-center gap-1 text-xs text-bone-dim/50">
             This will bridge as{" "}
             <a
               href={vampscanAddressUrl(evmChainId, predictedWrapped)}
               className="font-mono text-blood underline underline-offset-2 hover:text-blood-bright"
             >
               {shortAddress(predictedWrapped)} on Vampscan →
-            </a>{" "}
+            </a>
+            <CopyButton value={predictedWrapped} />
             (deterministic — same address whether or not it&apos;s been deployed yet).
           </p>
         )}
@@ -359,7 +361,7 @@ export function GeneralBridgeForm({
         )}
         {depositError && <p className="mt-2 text-sm text-blood-bright">{depositError.message}</p>}
         {depositConfirmed && (
-          <p className="mt-2 text-sm text-emerald-300">
+          <p className="mt-2 flex flex-wrap items-center gap-1 text-sm text-emerald-300">
             Deposited — wrapped mint should land shortly
             {predictedWrapped && (
               <>
@@ -371,6 +373,7 @@ export function GeneralBridgeForm({
                 >
                   {shortAddress(predictedWrapped)} on Vampscan
                 </a>
+                <CopyButton value={predictedWrapped} />
               </>
             )}
             .

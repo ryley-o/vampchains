@@ -1,10 +1,11 @@
-import Link from "next/link";
-import { shortAddress } from "@/lib/format";
+import { AddressChip } from "@/components/AddressChip";
 
 export function AddressLink({ evmChainId, address }: { evmChainId: string; address: string }) {
   return (
-    <Link href={`/${evmChainId}/address/${address}`} className="font-mono text-bone-dim hover:text-blood-bright">
-      {shortAddress(address)}
-    </Link>
+    <AddressChip
+      address={address}
+      href={`/${evmChainId}/address/${address}`}
+      linkClassName="text-bone-dim hover:text-blood-bright"
+    />
   );
 }

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { type Connector, useAccount, useConnect, useDisconnect } from "wagmi";
 import { shortAddress } from "@/lib/format";
+import { CopyButton } from "@/components/CopyButton";
 
 const CONNECTOR_LABELS: Record<string, string> = {
   injected: "Browser wallet",
@@ -17,12 +18,16 @@ export function ConnectButton() {
 
   if (isConnected && address) {
     return (
-      <button
-        onClick={() => disconnect()}
-        className="rounded-full border border-hairline-strong px-4 py-1.5 font-mono text-sm text-bone-dim transition-colors hover:border-blood/50 hover:text-bone"
-      >
-        {shortAddress(address)}
-      </button>
+      <div className="flex items-center gap-0.5 rounded-full border border-hairline-strong py-1 pl-4 pr-1.5">
+        <button
+          onClick={() => disconnect()}
+          title="Disconnect"
+          className="font-mono text-sm text-bone-dim transition-colors hover:text-bone"
+        >
+          {shortAddress(address)}
+        </button>
+        <CopyButton value={address} />
+      </div>
     );
   }
 
