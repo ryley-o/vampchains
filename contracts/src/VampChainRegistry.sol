@@ -51,6 +51,14 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
     }
 
     uint256 public constant YEAR = 365 days;
+    /// @notice A "week" is defined as exactly one fifty-second of a year (so
+    /// ~7.02 days, not a literal 7 — this keeps the fee a clean fraction of
+    /// the annual rate: `defaultAnnualFeeUSDC / 52` per week). Chains are
+    /// funded and priced in whole weeks.
+    uint256 public constant WEEK = YEAR / 52;
+    /// @notice The minimum number of weeks a chain must be funded for at
+    /// creation. A creator may fund more, but never fewer.
+    uint256 public constant MIN_INITIAL_WEEKS = 2;
     uint256 public constant MIN_LABEL_LEN = 1;
     uint256 public constant MAX_NAME_LEN = 64;
     uint256 public constant MAX_SYMBOL_LEN = 16;
@@ -138,6 +146,7 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
     error InvalidToken();
     error InvalidLabel();
     error InvalidDecimals();
+    error InvalidWeeks();
     error TokenAlreadyActive();
     error ChainNotFound();
     error ChainNotActive();
@@ -165,17 +174,35 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
     // Chain lifecycle
     // ---------------------------------------------------------------------
 
-    /// @notice Create a new vampchain backed by `baseToken`, paying the
-    /// current default annual fee in USDC (pulled via `transferFrom`, so the
-    /// caller must have approved this contract first).
+    /// @notice Create a new vampchain backed by `baseToken`, funding it for
+    /// the minimum `MIN_INITIAL_WEEKS` weeks upfront. Convenience wrapper
+    /// around the weeks-taking overload below — see it for the full
+    /// mechanics.
     function createChain(address baseToken, string calldata name, string calldata symbol)
         external
+        returns (uint256 chainId)
+    {
+        return createChain(baseToken, name, symbol, MIN_INITIAL_WEEKS);
+    }
+
+    /// @notice Create a new vampchain backed by `baseToken`, funding it for
+    /// `weeksToFund` weeks upfront — `weeksToFund * defaultAnnualFeeUSDC / 52`
+    /// in USDC, pulled via `transferFrom` (so the caller must have approved
+    /// this contract first). Must be at least `MIN_INITIAL_WEEKS`; a creator
+    /// may fund as many weeks as they like. The chain's rate is locked to
+    /// the current annual rate at creation; the runway then drains linearly,
+    /// and anyone can `topUp` for more. A low entry ticket (a couple weeks,
+    /// not a year) is deliberate — it keeps spinning up an experimental
+    /// chain approachable.
+    function createChain(address baseToken, string memory name, string memory symbol, uint256 weeksToFund)
+        public
         nonReentrant
         returns (uint256 chainId)
     {
         if (baseToken == address(0) || baseToken == usdc) revert InvalidToken();
         if (bytes(name).length < MIN_LABEL_LEN || bytes(name).length > MAX_NAME_LEN) revert InvalidLabel();
         if (bytes(symbol).length < MIN_LABEL_LEN || bytes(symbol).length > MAX_SYMBOL_LEN) revert InvalidLabel();
+        if (weeksToFund < MIN_INITIAL_WEEKS) revert InvalidWeeks();
         if (activeChainByToken[baseToken] != 0) revert TokenAlreadyActive();
 
         // Must at least look like an ERC20 (reverts otherwise) AND fall
@@ -184,7 +211,13 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
         uint8 tokenDecimals = IERC20Decimals(baseToken).decimals();
         if (tokenDecimals < MIN_BASE_TOKEN_DECIMALS || tokenDecimals > MAX_BASE_TOKEN_DECIMALS) revert InvalidDecimals();
 
-        uint256 fee = defaultAnnualFeeUSDC;
+        // The chain's ongoing rate is the full annual fee, but only the
+        // funded weeks are pulled upfront — see WEEK. The linear-drain math
+        // (`depletionInstant`) turns a `fundingBalance` of
+        // `weeksToFund * annualFee / 52` into exactly `weeksToFund` weeks of
+        // runway.
+        uint256 annualFee = defaultAnnualFeeUSDC;
+        uint256 initialFunding = (weeksToFund * annualFee) / 52;
         chainId = nextChainId++;
 
         _chains[chainId] = VampChain({
@@ -194,17 +227,17 @@ contract VampChainRegistry is Ownable, ReentrancyGuard {
             symbol: symbol,
             createdAt: uint64(block.timestamp),
             lastAccrualAt: uint64(block.timestamp),
-            fundingBalance: fee.toUint128(),
-            annualFeeUSDC: fee.toUint128(),
+            fundingBalance: initialFunding.toUint128(),
+            annualFeeUSDC: annualFee.toUint128(),
             active: true
         });
         activeChainByToken[baseToken] = chainId;
 
-        if (fee > 0) {
-            usdc.safeTransferFrom(msg.sender, address(this), fee);
+        if (initialFunding > 0) {
+            usdc.safeTransferFrom(msg.sender, address(this), initialFunding);
         }
 
-        emit ChainCreated(chainId, baseToken, msg.sender, name, symbol, fee, fee);
+        emit ChainCreated(chainId, baseToken, msg.sender, name, symbol, initialFunding, annualFee);
     }
 
     /// @notice Permissionlessly add USDC funding to a chain's runway. Anyone

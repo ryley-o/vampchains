@@ -90,18 +90,19 @@ export default async function HowItWorksPage() {
 
       <FangDivider className="mt-12" />
 
-      <Section eyebrow="The model" title="Pay once a year, get a whole chain">
+      <Section eyebrow="The model" title="Pay by the week, get a whole chain">
         <p>
-          Pick any existing ERC20 on Base, Ethereum, or Robinhood Chain. Pay the annual fee —
-          currently <span className="font-mono text-bone">${formatUsdc(defaultAnnualFee)}</span>{" "}
-          in USDC — and we spin up a single-node EVM chain that runs on your token as gas.
-          It&apos;s real: real RPC, real blocks, real transactions, usually live well under a
-          minute after payment.
+          Pick any existing ERC20 on Base, Ethereum, or Robinhood Chain. The rate is{" "}
+          <span className="font-mono text-bone">${formatUsdc(defaultAnnualFee / 52n)}/week</span> in USDC — fund at
+          least two weeks (about{" "}
+          <span className="font-mono text-bone">${formatUsdc((defaultAnnualFee / 52n) * 2n)}</span>) to start, or as
+          many weeks as you like — and we spin up a single-node EVM chain that runs on your token as gas. It&apos;s
+          real: real RPC, real blocks, real transactions, usually live well under a minute after payment.
         </p>
         <p>
-          The fee drains linearly over the year, and it&apos;s fully public — anyone can top up a
-          chain&apos;s runway, not just its creator. Nobody, including us, can charge for time not
-          yet served.
+          Your funding drains linearly, and it&apos;s fully public — anyone can top up a chain&apos;s runway, not
+          just its creator. Nobody, including us, can charge for time not yet served. A low entry point (a couple
+          weeks, not a year) is the whole idea: try a chain for your token without committing much.
         </p>
         <p className="text-xs text-bone-dim/40">
           Exact fee mechanics — including the rare cases where we&apos;d adjust an existing

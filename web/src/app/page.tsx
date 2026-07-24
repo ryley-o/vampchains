@@ -20,8 +20,8 @@ const STEPS = [
   },
   {
     n: "02",
-    title: "Pay the fee",
-    body: "One annual fee in USDC, drawn down linearly. Nobody can charge you for runway you haven't used yet.",
+    title: "Fund a few weeks",
+    body: "Pay by the week in USDC (two-week minimum), drawn down linearly. Nobody can charge you for runway you haven't used yet.",
   },
   {
     n: "03",

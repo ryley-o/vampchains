@@ -167,8 +167,8 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ev
                 <p className="mt-1 font-mono text-lg text-bone">${formatUsdc(onchain.fundingBalance)}</p>
               </div>
               <div>
-                <p className="text-bone-dim/50">Annual fee</p>
-                <p className="mt-1 font-mono text-lg text-bone">${formatUsdc(onchain.annualFeeUSDC)}</p>
+                <p className="text-bone-dim/50">Weekly rate</p>
+                <p className="mt-1 font-mono text-lg text-bone">${formatUsdc(onchain.annualFeeUSDC / 52n)}</p>
               </div>
               <div className="col-span-2 sm:col-span-2">
                 <p className="text-bone-dim/50">Vital signs</p>

@@ -16,8 +16,21 @@ contract VampChainRegistryTest is Test {
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
 
-    uint256 internal constant ANNUAL_FEE = 1_000e6; // $1,000/yr, USDC has 6 decimals
+    uint256 internal constant ANNUAL_FEE = 520e6; // $520/yr, USDC has 6 decimals (divisible by 52 → $10/wk)
     uint256 internal constant YEAR = 365 days;
+    // A chain is funded a minimum of MIN_INITIAL_WEEKS weeks upfront at
+    // creation — see VampChainRegistry.WEEK/MIN_INITIAL_WEEKS and
+    // createChain. INITIAL_FEE is the amount pulled for the default minimum
+    // funding; INITIAL_RUNWAY is the runway it buys.
+    uint256 internal constant MIN_INITIAL_WEEKS = 2;
+    uint256 internal constant WEEK = YEAR / 52;
+    uint256 internal constant WEEK_FEE = ANNUAL_FEE / 52; // $10/week
+    uint256 internal constant INITIAL_FEE = MIN_INITIAL_WEEKS * WEEK_FEE; // $20 for the 2-week minimum
+    uint256 internal constant INITIAL_RUNWAY = (MIN_INITIAL_WEEKS * YEAR) / 52;
+    // A "week" (YEAR/52) isn't a whole number of seconds, so per-week
+    // accrual carries a few wei of integer-division dust — this is the
+    // tolerance for the approximate fee-accrual assertions below.
+    uint256 internal constant DUST = 20;
 
     function setUp() public {
         usdc = new MockERC20("USD Coin", "USDC", 6);
@@ -73,28 +86,72 @@ contract VampChainRegistryTest is Test {
         assertEq(chainId, 1);
         assertEq(registry.nextChainId(), 2);
         assertEq(registry.activeChainByToken(address(meme)), 1);
-        assertEq(usdc.balanceOf(alice), aliceBalBefore - ANNUAL_FEE);
-        assertEq(usdc.balanceOf(address(registry)), ANNUAL_FEE);
+        // Only the two-week minimum is pulled upfront, not the full year.
+        assertEq(usdc.balanceOf(alice), aliceBalBefore - INITIAL_FEE);
+        assertEq(usdc.balanceOf(address(registry)), INITIAL_FEE);
 
         VampChainRegistry.VampChain memory c = registry.getChain(1);
         assertEq(c.baseToken, address(meme));
         assertEq(c.creator, alice);
         assertEq(c.name, "Dogeblock");
         assertEq(c.symbol, "DOGB");
-        assertEq(c.fundingBalance, ANNUAL_FEE);
-        assertEq(c.annualFeeUSDC, ANNUAL_FEE);
+        assertEq(c.fundingBalance, INITIAL_FEE);
+        assertEq(c.annualFeeUSDC, ANNUAL_FEE); // ongoing rate is still the full annual
         assertTrue(c.active);
         assertEq(c.createdAt, block.timestamp);
         assertEq(c.lastAccrualAt, block.timestamp);
 
         assertTrue(registry.isActive(1));
-        assertEq(registry.remainingRuntime(1), YEAR);
+        assertEq(registry.remainingRuntime(1), INITIAL_RUNWAY); // two weeks of runway, not a year
+    }
+
+    function test_createChain_fundsMoreWeeksWhenRequested() public {
+        MockERC20 meme = _memeToken();
+        uint256 aliceBalBefore = usdc.balanceOf(alice);
+
+        vm.prank(alice);
+        uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB", 10); // fund 10 weeks
+
+        // Pulls 10 weeks' worth upfront and buys 10 weeks of runway.
+        assertEq(usdc.balanceOf(alice), aliceBalBefore - 10 * WEEK_FEE);
+        VampChainRegistry.VampChain memory c = registry.getChain(chainId);
+        assertEq(c.fundingBalance, 10 * WEEK_FEE);
+        assertEq(c.annualFeeUSDC, ANNUAL_FEE); // ongoing rate unchanged by how many weeks were funded
+        assertEq(registry.remainingRuntime(chainId), (10 * YEAR) / 52);
+    }
+
+    function test_createChain_revertsBelowMinimumWeeks() public {
+        MockERC20 meme = _memeToken();
+        vm.expectRevert(VampChainRegistry.InvalidWeeks.selector);
+        vm.prank(alice);
+        registry.createChain(address(meme), "Dogeblock", "DOGB", 1); // below the 2-week minimum
+    }
+
+    function test_createChain_zeroWeeksReverts() public {
+        MockERC20 meme = _memeToken();
+        vm.expectRevert(VampChainRegistry.InvalidWeeks.selector);
+        vm.prank(alice);
+        registry.createChain(address(meme), "Dogeblock", "DOGB", 0);
+    }
+
+    function test_createChain_convenienceOverloadFundsExactlyMinimum() public {
+        MockERC20 meme = _memeToken();
+        vm.prank(alice);
+        uint256 a = registry.createChain(address(meme), "A", "A"); // 3-arg convenience
+
+        MockERC20 meme2 = _memeToken();
+        vm.prank(bob);
+        uint256 b = registry.createChain(address(meme2), "B", "B", MIN_INITIAL_WEEKS); // explicit minimum
+
+        // Both fund the same: the 3-arg form is exactly the 2-week minimum.
+        assertEq(registry.getChain(a).fundingBalance, registry.getChain(b).fundingBalance);
+        assertEq(registry.getChain(a).fundingBalance, INITIAL_FEE);
     }
 
     function test_createChain_emitsEvent() public {
         MockERC20 meme = _memeToken();
         vm.expectEmit(true, true, true, true);
-        emit VampChainRegistry.ChainCreated(1, address(meme), alice, "Dogeblock", "DOGB", ANNUAL_FEE, ANNUAL_FEE);
+        emit VampChainRegistry.ChainCreated(1, address(meme), alice, "Dogeblock", "DOGB", INITIAL_FEE, ANNUAL_FEE);
         vm.prank(alice);
         registry.createChain(address(meme), "Dogeblock", "DOGB");
     }
@@ -217,7 +274,7 @@ contract VampChainRegistryTest is Test {
         registry.topUp(chainId, 500e6);
 
         VampChainRegistry.VampChain memory c = registry.getChain(chainId);
-        assertEq(c.fundingBalance, ANNUAL_FEE + 500e6);
+        assertEq(c.fundingBalance, INITIAL_FEE + 500e6);
     }
 
     function test_topUp_extendsRuntimeByExactAmount() public {
@@ -271,18 +328,18 @@ contract VampChainRegistryTest is Test {
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
-        vm.warp(block.timestamp + YEAR + 1); // depleted, but still within grace
+        vm.warp(block.timestamp + INITIAL_RUNWAY + 1); // two funded weeks elapsed, so now depleted-but-in-grace
         assertTrue(registry.isActive(chainId));
         assertFalse(registry.isPastGrace(chainId));
 
         vm.prank(bob);
-        registry.topUp(chainId, ANNUAL_FEE);
+        registry.topUp(chainId, ANNUAL_FEE); // a full year's worth
 
-        // fundingBalance is now 2x ANNUAL_FEE (the original untouched
-        // balance plus the top-up — nothing auto-drains it over time,
-        // only withdrawEarned/topUp ever change it), so the new
-        // depletion instant is a full extra year out from creation, one
-        // second later than "now".
+        // fundingBalance is now INITIAL_FEE + ANNUAL_FEE (the original
+        // untouched two weeks plus the top-up — nothing auto-drains it over
+        // time, only withdrawEarned/topUp ever change it), so the new
+        // depletion instant is a full extra year out past the original
+        // two weeks, one second later than "now".
         assertTrue(registry.isActive(chainId));
         assertEq(registry.remainingRuntime(chainId), YEAR - 1);
         assertGt(registry.graceDeadline(chainId), block.timestamp + YEAR);
@@ -307,8 +364,10 @@ contract VampChainRegistryTest is Test {
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
-        vm.warp(block.timestamp + YEAR / 2);
-        assertApproxEqAbs(registry.earned(chainId), ANNUAL_FEE / 2, 1);
+        // Accrues linearly at the full annual rate; one week in (half the
+        // 2-week funded runway), one week's fee has been earned.
+        vm.warp(block.timestamp + INITIAL_RUNWAY / 2);
+        assertApproxEqAbs(registry.earned(chainId), INITIAL_FEE / 2, DUST);
     }
 
     function test_earned_capsAtFundingBalance() public {
@@ -317,14 +376,14 @@ contract VampChainRegistryTest is Test {
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
         vm.warp(block.timestamp + YEAR * 5);
-        assertEq(registry.earned(chainId), ANNUAL_FEE);
+        assertEq(registry.earned(chainId), INITIAL_FEE); // capped at what was actually funded
     }
 
     function test_remainingRuntime_fullAtCreation() public {
         MockERC20 meme = _memeToken();
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
-        assertEq(registry.remainingRuntime(chainId), YEAR);
+        assertEq(registry.remainingRuntime(chainId), INITIAL_RUNWAY);
     }
 
     function test_remainingRuntime_countsDown() public {
@@ -333,15 +392,15 @@ contract VampChainRegistryTest is Test {
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
         vm.warp(block.timestamp + 10 days);
-        assertEq(registry.remainingRuntime(chainId), YEAR - 10 days);
+        assertEq(registry.remainingRuntime(chainId), INITIAL_RUNWAY - 10 days);
     }
 
-    function test_remainingRuntime_zeroAfterFullYear() public {
+    function test_remainingRuntime_zeroAfterFundedWeeks() public {
         MockERC20 meme = _memeToken();
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
-        vm.warp(block.timestamp + YEAR);
+        vm.warp(block.timestamp + INITIAL_RUNWAY);
         assertEq(registry.remainingRuntime(chainId), 0);
         // Paid runtime hitting zero does NOT deactivate on its own anymore —
         // the chain stays open throughout its grace period. See the
@@ -358,7 +417,7 @@ contract VampChainRegistryTest is Test {
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
-        vm.warp(block.timestamp + YEAR); // exactly depleted
+        vm.warp(block.timestamp + INITIAL_RUNWAY); // exactly depleted (two funded weeks)
         assertTrue(registry.isActive(chainId));
         assertFalse(registry.isPastGrace(chainId));
 
@@ -376,7 +435,7 @@ contract VampChainRegistryTest is Test {
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
-        vm.warp(block.timestamp + YEAR + registry.GRACE_PERIOD()); // depleted, still exactly in grace
+        vm.warp(block.timestamp + INITIAL_RUNWAY + registry.GRACE_PERIOD()); // depleted, still exactly in grace
         assertFalse(registry.deactivateIfGraceExpired(chainId));
         assertTrue(registry.isActive(chainId));
     }
@@ -386,7 +445,7 @@ contract VampChainRegistryTest is Test {
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
-        vm.warp(block.timestamp + YEAR + registry.GRACE_PERIOD() + 1);
+        vm.warp(block.timestamp + INITIAL_RUNWAY + registry.GRACE_PERIOD() + 1);
         assertTrue(registry.deactivateIfGraceExpired(chainId));
         assertFalse(registry.isActive(chainId));
     }
@@ -413,8 +472,8 @@ contract VampChainRegistryTest is Test {
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
-        assertEq(registry.depletionInstant(chainId), createdAt + YEAR);
-        assertEq(registry.graceDeadline(chainId), createdAt + YEAR + registry.GRACE_PERIOD());
+        assertEq(registry.depletionInstant(chainId), createdAt + INITIAL_RUNWAY);
+        assertEq(registry.graceDeadline(chainId), createdAt + INITIAL_RUNWAY + registry.GRACE_PERIOD());
     }
 
     function testFuzz_gracePeriod_isPastGraceExactlyAtDeadlinePlusOne(uint32 extraWarp) public {
@@ -444,7 +503,8 @@ contract VampChainRegistryTest is Test {
 
         vm.warp(block.timestamp + warpSeconds);
         uint256 runtime = registry.remainingRuntime(chainId);
-        uint256 totalRuntimeBudget = ((uint256(ANNUAL_FEE) + topUpAmount) * YEAR) / ANNUAL_FEE;
+        // Funded the two-week minimum upfront (INITIAL_FEE), plus whatever was topped up.
+        uint256 totalRuntimeBudget = ((uint256(INITIAL_FEE) + topUpAmount) * YEAR) / ANNUAL_FEE;
         assertLe(runtime, totalRuntimeBudget);
     }
 
@@ -478,17 +538,17 @@ contract VampChainRegistryTest is Test {
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
-        vm.warp(block.timestamp + YEAR / 4);
-        uint256 expected = ANNUAL_FEE / 4;
+        vm.warp(block.timestamp + INITIAL_RUNWAY / 4);
+        uint256 expected = INITIAL_FEE / 4;
 
         vm.prank(owner);
         uint256 withdrawn = registry.withdrawEarned(chainId);
 
-        assertApproxEqAbs(withdrawn, expected, 1);
+        assertApproxEqAbs(withdrawn, expected, DUST);
         assertEq(usdc.balanceOf(treasury), withdrawn);
 
         VampChainRegistry.VampChain memory c = registry.getChain(chainId);
-        assertEq(c.fundingBalance, ANNUAL_FEE - withdrawn);
+        assertEq(c.fundingBalance, INITIAL_FEE - withdrawn);
         assertEq(c.lastAccrualAt, block.timestamp);
         assertTrue(c.active);
     }
@@ -498,14 +558,17 @@ contract VampChainRegistryTest is Test {
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
-        vm.warp(block.timestamp + 30 days);
+        vm.warp(block.timestamp + 10 days);
         uint256 runtimeBefore = registry.remainingRuntime(chainId);
 
         vm.prank(owner);
         registry.withdrawEarned(chainId);
 
+        // Exactly unchanged in real arithmetic; the ±1s tolerance absorbs
+        // integer-division dust, which is more visible now that a chain is
+        // funded a couple weeks rather than a year (smaller balances).
         uint256 runtimeAfter = registry.remainingRuntime(chainId);
-        assertEq(runtimeAfter, runtimeBefore);
+        assertApproxEqAbs(runtimeAfter, runtimeBefore, 1);
     }
 
     /// @notice Fully draining `fundingBalance` no longer auto-deactivates —
@@ -513,7 +576,7 @@ contract VampChainRegistryTest is Test {
     /// fee withdrawal, timed any time after nominal depletion, would
     /// instantly and permanently kill a chain even one second into its
     /// grace window). The chain stays `active` in storage and — since it's
-    /// still within grace at YEAR+1 — `isActive()` correctly stays true.
+    /// still within grace at INITIAL_RUNWAY+1 — `isActive()` correctly stays true.
     /// Only `deactivateIfGraceExpired`, once grace has genuinely elapsed,
     /// ever flips that.
     function test_withdrawEarned_fullDrainDoesNotBypassGracePeriod() public {
@@ -521,11 +584,11 @@ contract VampChainRegistryTest is Test {
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
-        vm.warp(block.timestamp + YEAR + 1); // depleted, but still within grace
+        vm.warp(block.timestamp + INITIAL_RUNWAY + 1); // depleted, but still within grace
 
         vm.prank(owner);
         uint256 withdrawn = registry.withdrawEarned(chainId);
-        assertEq(withdrawn, ANNUAL_FEE);
+        assertEq(withdrawn, INITIAL_FEE);
 
         VampChainRegistry.VampChain memory c = registry.getChain(chainId);
         assertEq(c.fundingBalance, 0);
@@ -579,7 +642,7 @@ contract VampChainRegistryTest is Test {
 
         VampChainRegistry.VampChain memory c = registry.getChain(chainId);
         assertEq(c.annualFeeUSDC, ANNUAL_FEE * 2);
-        assertEq(c.fundingBalance, ANNUAL_FEE);
+        assertEq(c.fundingBalance, INITIAL_FEE);
     }
 
     function test_setChainAnnualFee_settlesAccruedAmountAtOldRateBeforeChanging() public {
@@ -587,16 +650,16 @@ contract VampChainRegistryTest is Test {
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
-        vm.warp(block.timestamp + YEAR / 4);
-        uint256 expectedSettled = ANNUAL_FEE / 4;
+        vm.warp(block.timestamp + INITIAL_RUNWAY / 4);
+        uint256 expectedSettled = INITIAL_FEE / 4;
 
         vm.prank(owner);
         registry.setChainAnnualFee(chainId, ANNUAL_FEE * 2);
 
-        assertApproxEqAbs(usdc.balanceOf(treasury), expectedSettled, 1);
+        assertApproxEqAbs(usdc.balanceOf(treasury), expectedSettled, DUST);
 
         VampChainRegistry.VampChain memory c = registry.getChain(chainId);
-        assertApproxEqAbs(c.fundingBalance, ANNUAL_FEE - expectedSettled, 1);
+        assertApproxEqAbs(c.fundingBalance, INITIAL_FEE - expectedSettled, DUST);
         assertEq(c.lastAccrualAt, block.timestamp);
         assertEq(c.annualFeeUSDC, ANNUAL_FEE * 2);
     }
@@ -613,19 +676,21 @@ contract VampChainRegistryTest is Test {
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
-        vm.warp(block.timestamp + YEAR / 4);
-        uint256 earnedBeforeChange = ANNUAL_FEE / 4;
-
+        // Phase 1: one week at the original rate, settled by the rate change.
+        skip(WEEK);
         vm.prank(owner);
         registry.setChainAnnualFee(chainId, ANNUAL_FEE / 2);
+        uint256 treasuryAfterPhase1 = usdc.balanceOf(treasury);
+        assertApproxEqAbs(treasuryAfterPhase1, WEEK_FEE, DUST); // ~one week at the old rate
 
-        vm.warp(block.timestamp + YEAR / 4);
+        // Phase 2: one more week, now at half the rate.
+        skip(WEEK);
         vm.prank(owner);
         uint256 earnedAfterChange = registry.withdrawEarned(chainId);
 
-        // A quarter-year at half the original rate, not at the original rate.
-        assertApproxEqAbs(earnedAfterChange, ANNUAL_FEE / 8, 1);
-        assertApproxEqAbs(usdc.balanceOf(treasury), earnedBeforeChange + earnedAfterChange, 2);
+        // One week at half the original rate — not the original rate.
+        assertApproxEqAbs(earnedAfterChange, WEEK_FEE / 2, DUST);
+        assertApproxEqAbs(usdc.balanceOf(treasury), treasuryAfterPhase1 + earnedAfterChange, DUST);
     }
 
     function test_setChainAnnualFee_emitsEvent() public {
@@ -633,10 +698,16 @@ contract VampChainRegistryTest is Test {
         vm.prank(alice);
         uint256 chainId = registry.createChain(address(meme), "Dogeblock", "DOGB");
 
-        vm.warp(block.timestamp + YEAR / 4);
+        uint256 elapsed = INITIAL_RUNWAY / 4;
+        vm.warp(block.timestamp + elapsed);
+
+        // Compute the settled amount with the contract's own integer math
+        // (a week isn't a whole number of seconds, so it isn't exactly
+        // INITIAL_FEE/4) — expectEmit needs the exact value.
+        uint256 expectedSettled = (ANNUAL_FEE * elapsed) / YEAR;
 
         vm.expectEmit(true, true, true, true);
-        emit VampChainRegistry.ChainAnnualFeeUpdated(chainId, ANNUAL_FEE, ANNUAL_FEE * 2, ANNUAL_FEE / 4);
+        emit VampChainRegistry.ChainAnnualFeeUpdated(chainId, ANNUAL_FEE, ANNUAL_FEE * 2, expectedSettled);
         vm.prank(owner);
         registry.setChainAnnualFee(chainId, ANNUAL_FEE * 2);
     }
@@ -772,7 +843,10 @@ contract VampChainRegistryTest is Test {
 
         evilUsdc.mint(alice, ANNUAL_FEE * 2);
         evilUsdc.arm(
-            address(evilRegistry), abi.encodeCall(VampChainRegistry.createChain, (address(meme), "Reentrant", "RE"))
+            address(evilRegistry),
+            abi.encodeWithSignature(
+                "createChain(address,string,string,uint256)", address(meme), "Reentrant", "RE", MIN_INITIAL_WEEKS
+            )
         );
 
         vm.prank(alice);

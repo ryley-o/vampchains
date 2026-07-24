@@ -28,6 +28,10 @@ export function CreateChainForm() {
 
   const [tokenAddress, setTokenAddress] = useState("");
   const [agreed, setAgreed] = useState(false);
+  // A chain is funded in whole weeks, minimum 2. The creator can fund more
+  // upfront for a longer runway (or top up later, permissionlessly).
+  const MIN_WEEKS = 2;
+  const [weeks, setWeeks] = useState(MIN_WEEKS);
 
   const validToken = isAddress(tokenAddress) ? (tokenAddress as Address) : undefined;
 
@@ -84,8 +88,14 @@ export function CreateChainForm() {
     query: { enabled: !!address && homeChain.configured },
   });
 
-  const fee = (annualFee as bigint | undefined) ?? 0n;
-  const needsApproval = (allowance as bigint | undefined) === undefined || (allowance as bigint) < fee;
+  // The registry stores an annual rate; a "week" is 1/52 of it (see
+  // VampChainRegistry.WEEK). Weekly price and the upfront total both derive
+  // from that, so if the owner ever changes the rate this reflects it live.
+  const annual = (annualFee as bigint | undefined) ?? 0n;
+  const weekFee = annual / 52n;
+  const validWeeks = Number.isInteger(weeks) && weeks >= MIN_WEEKS;
+  const totalFee = validWeeks ? weekFee * BigInt(weeks) : 0n;
+  const needsApproval = (allowance as bigint | undefined) === undefined || (allowance as bigint) < totalFee;
   const tokenAlreadyUsed = !!activeChainForToken && (activeChainForToken as bigint) !== 0n;
 
   const { writeContract: approve, data: approveHash, isPending: approving } = useWriteContract();
@@ -112,8 +122,9 @@ export function CreateChainForm() {
       !!derivedName &&
       !!derivedSymbol &&
       !tokenAlreadyUsed &&
+      validWeeks &&
       agreed,
-    [homeChain.configured, isConnected, validToken, tokenDecimalsError, metadataUnreadable, derivedName, derivedSymbol, tokenAlreadyUsed, agreed]
+    [homeChain.configured, isConnected, validToken, tokenDecimalsError, metadataUnreadable, derivedName, derivedSymbol, tokenAlreadyUsed, validWeeks, agreed]
   );
 
   if (!CONTRACTS_CONFIGURED) {
@@ -195,11 +206,44 @@ export function CreateChainForm() {
         )}
       </div>
 
+      <div>
+        <label className="block text-xs font-semibold uppercase tracking-wider text-bone-dim/60">
+          Fund it for
+        </label>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setWeeks((w) => Math.max(MIN_WEEKS, w - 1))}
+              className="h-9 w-9 rounded-lg border border-hairline text-bone-dim transition-colors hover:border-bone-dim hover:text-bone"
+            >
+              −
+            </button>
+            <input
+              type="number"
+              min={MIN_WEEKS}
+              value={weeks}
+              onChange={(e) => setWeeks(Math.max(MIN_WEEKS, Math.floor(Number(e.target.value) || MIN_WEEKS)))}
+              className="w-16 rounded-lg border border-hairline bg-ink-raised px-3 py-2 text-center font-mono text-sm text-bone focus:border-blood/60"
+            />
+            <button
+              type="button"
+              onClick={() => setWeeks((w) => w + 1)}
+              className="h-9 w-9 rounded-lg border border-hairline text-bone-dim transition-colors hover:border-bone-dim hover:text-bone"
+            >
+              +
+            </button>
+          </div>
+          <span className="text-sm text-bone-dim/70">weeks (minimum {MIN_WEEKS})</span>
+        </div>
+      </div>
+
       <div className="rounded-xl border border-hairline bg-charcoal-soft/50 p-4 text-sm text-bone-dim/80">
         <p>
-          Annual fee: <span className="font-semibold text-bone">${formatUsdc(fee)} USDC</span>, paid up front and
-          drawn down linearly over the year — nobody can charge you for runway you haven&apos;t
-          used yet. See{" "}
+          <span className="font-semibold text-bone">${formatUsdc(weekFee)}/week</span> · you&apos;re funding{" "}
+          <span className="font-semibold text-bone">{weeks} weeks</span> now for{" "}
+          <span className="font-semibold text-bone">${formatUsdc(totalFee)} USDC</span>, paid up front and drawn down
+          linearly — nobody can charge you for runway you haven&apos;t used, and anyone can top it up later. See{" "}
           <a href="/terms" className="text-bone underline underline-offset-2">
             terms
           </a>
@@ -237,12 +281,12 @@ export function CreateChainForm() {
               address: USDC_ADDRESS,
               abi: ERC20_ABI,
               functionName: "approve",
-              args: [REGISTRY_ADDRESS, fee],
+              args: [REGISTRY_ADDRESS, totalFee],
             });
           }}
           className="w-full rounded-full bg-bone px-6 py-3.5 text-sm font-semibold uppercase tracking-wider text-ink transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100 sm:w-auto"
         >
-          {approving || approveConfirming ? "Approving USDC…" : `Approve ${formatUsdc(fee)} USDC`}
+          {approving || approveConfirming ? "Approving USDC…" : `Approve ${formatUsdc(totalFee)} USDC`}
         </button>
       ) : (
         <button
@@ -254,7 +298,7 @@ export function CreateChainForm() {
               address: REGISTRY_ADDRESS,
               abi: REGISTRY_ABI,
               functionName: "createChain",
-              args: [validToken, derivedName, derivedSymbol],
+              args: [validToken, derivedName, derivedSymbol, BigInt(weeks)],
             });
           }}
           className="w-full rounded-full bg-blood px-6 py-3.5 text-sm font-semibold uppercase tracking-wider text-bone shadow-[0_0_40px_rgba(226,45,58,0.3)] transition-transform hover:scale-[1.02] hover:bg-blood-bright disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100 sm:w-auto"

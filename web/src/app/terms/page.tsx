@@ -24,8 +24,10 @@ export default function TermsPage() {
       <h2 className="text-display pt-3 text-lg text-bone">Funding &amp; chain lifecycle</h2>
       <p>
         A chain&apos;s funding balance is public and drawn down linearly over time to cover our
-        real infrastructure cost. Anyone can top it up. Each chain&apos;s annual fee rate is fixed
-        at creation, but we reserve the right to change it later for an already-existing chain —
+        real infrastructure cost. Chains are priced by the week (a week being defined as 1/52 of a
+        year), funded a minimum of two weeks upfront, and anyone can top one up. Each chain&apos;s
+        rate is fixed at creation, but we reserve the right to change it later for an already-existing
+        chain —
         for example if our infrastructure costs shift, or a chain&apos;s on-chain state has grown
         enough to change what it actually costs to run. Any such change is never retroactive:
         whatever had already accrued under the old rate is settled first, and the new rate only
