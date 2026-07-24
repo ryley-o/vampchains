@@ -111,10 +111,10 @@ function TimelineDiagram() {
       </div>
 
       <p className="mt-4 text-sm text-bone-dim/70">
-        Both add into a single cumulative number that only ever grows. Whenever it grows we sign a
-        fresh receipt of the new total — the previous one instantly worthless. So no matter how long
-        you wait, one transaction claims everything, and no old receipt can ever be reused to claim
-        twice.
+        Both add into one running total that only goes up. To claim, you show the current total and
+        the contract pays out whatever hasn&apos;t been paid yet — so one transaction always settles
+        everything you&apos;re owed, whether you claim after a day or a year. Because it tracks the
+        total paid rather than any single receipt, the same revenue can never be paid twice.
       </p>
     </div>
   );
@@ -160,12 +160,17 @@ export default function HowFeesWorkPage() {
         <TimelineDiagram />
       </Section>
 
-      <Section eyebrow="Who actually does this" title="Public, but not anyone's job">
+      <Section eyebrow="Who actually does this" title="Anyone can press the button — and that's safe">
         <p>
-          Claiming is technically open to anyone — nothing about it is gatekept, since the payout
-          always lands on the same three fixed addresses no matter who submits it. In practice
-          it&apos;s usually the chain&apos;s creator, or a small admin script, pulling revenue in
-          whenever it&apos;s worth the gas to do so.
+          Anyone can submit the claim, because the button doesn&apos;t choose where the money goes.
+          The three destinations (creator, protocol, runway) are fixed in the contract. Whoever
+          clicks it just pays the gas; the money always lands in the same three places.
+        </p>
+        <p>
+          So there&apos;s nothing to steal by racing you to it. If someone submits before you do,
+          they&apos;ve just paid gas to send your money to you — and your transaction simply sees
+          it&apos;s already done and stops. In practice it&apos;s the chain&apos;s creator or a small
+          script pulling revenue in whenever it&apos;s worth the gas.
         </p>
       </Section>
 
