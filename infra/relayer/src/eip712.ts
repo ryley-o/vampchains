@@ -18,15 +18,9 @@ export interface ClaimTokenMessage {
   sidechainTxHash: Hex;
 }
 
-export interface ClaimSweptMessage {
+export interface FeeRevenueMessage {
   vampChainId: bigint;
-  amount: bigint;
-  sidechainTxHash: Hex;
-}
-
-export interface BurnedFeesMessage {
-  vampChainId: bigint;
-  cumulativeBurned: bigint;
+  cumulativeRevenue: bigint;
   asOfBlock: bigint;
 }
 
@@ -59,26 +53,17 @@ const CLAIM_TOKEN_TYPES = {
   ],
 } as const;
 
-/// Must match VampBridge.sol's CLAIM_SWEPT_TYPEHASH exactly. No `to` field —
-/// claimSwept() always splits three ways between the protocol treasury, the
-/// chain's creator, and the runway treasury, all read live from the
-/// registry, never caller-supplied.
-const CLAIM_SWEPT_TYPES = {
-  ClaimSwept: [
+/// Must match VampBridge.sol's FEE_REVENUE_TYPEHASH exactly. Attests to
+/// ONE *cumulative* total covering both tips and base-fee burn — no `to`
+/// field (claimFeeRevenue() always splits three ways between the protocol
+/// treasury, the chain's creator, and the runway treasury, all read live
+/// from the registry) and no per-event identity (claimFeeRevenue() only
+/// ever pays the increment over what it's already paid, so resubmitting a
+/// stale attestation is a harmless no-op rather than a double-pay).
+const FEE_REVENUE_TYPES = {
+  FeeRevenue: [
     { name: "vampChainId", type: "uint256" },
-    { name: "amount", type: "uint256" },
-    { name: "sidechainTxHash", type: "bytes32" },
-  ],
-} as const;
-
-/// Must match VampBridge.sol's BURNED_FEES_TYPEHASH exactly. Attests to a
-/// *cumulative* total, not a discrete event — claimBurnedFees() only ever
-/// pays out the increment over what it's already paid, so resubmitting a
-/// stale attestation is a harmless no-op rather than a double-pay.
-const BURNED_FEES_TYPES = {
-  BurnedFees: [
-    { name: "vampChainId", type: "uint256" },
-    { name: "cumulativeBurned", type: "uint256" },
+    { name: "cumulativeRevenue", type: "uint256" },
     { name: "asOfBlock", type: "uint256" },
   ],
 } as const;
@@ -121,10 +106,10 @@ export async function signClaimToken(
   });
 }
 
-/// Same domain, distinct typehash — see CLAIM_SWEPT_TYPES above.
-export async function signClaimSwept(
+/// Same domain, distinct typehash — see FEE_REVENUE_TYPES above.
+export async function signFeeRevenue(
   account: SigningAccount,
-  params: { l1ChainId: number; bridgeAddress: Address; claim: ClaimSweptMessage }
+  params: { l1ChainId: number; bridgeAddress: Address; claim: FeeRevenueMessage }
 ): Promise<Hex> {
   return account.signTypedData({
     domain: {
@@ -133,26 +118,8 @@ export async function signClaimSwept(
       chainId: params.l1ChainId,
       verifyingContract: params.bridgeAddress,
     },
-    types: CLAIM_SWEPT_TYPES,
-    primaryType: "ClaimSwept",
-    message: params.claim,
-  });
-}
-
-/// Same domain, distinct typehash — see BURNED_FEES_TYPES above.
-export async function signBurnedFees(
-  account: SigningAccount,
-  params: { l1ChainId: number; bridgeAddress: Address; claim: BurnedFeesMessage }
-): Promise<Hex> {
-  return account.signTypedData({
-    domain: {
-      name: "VampBridge",
-      version: "1",
-      chainId: params.l1ChainId,
-      verifyingContract: params.bridgeAddress,
-    },
-    types: BURNED_FEES_TYPES,
-    primaryType: "BurnedFees",
+    types: FEE_REVENUE_TYPES,
+    primaryType: "FeeRevenue",
     message: params.claim,
   });
 }

@@ -41,8 +41,9 @@ export interface ProvisionerConfig {
   cliqueSignerPrivateKey: string;
   /// The public address matching `cliqueSignerPrivateKey` — used to
   /// exclude that account's balance from a chain's final snapshot (it's
-  /// swept protocol fee revenue, not a user claim; see feeSweep.ts on the
-  /// relayer and snapshotBuilder.ts here).
+  /// accumulated protocol tip revenue, not a user claim; see
+  /// snapshotBuilder.ts here and docs/ARCHITECTURE.md "Protocol fee
+  /// revenue").
   cliqueSignerAddress: Address;
   /// Native currency treasury/burn-signal address on every vampchain —
   /// excluded from snapshots for the same reason as `cliqueSignerAddress`:

@@ -33,14 +33,6 @@ enum FundingEventKind {
   WITHDRAWAL
 }
 
-enum WithdrawalKind {
-  USER // a real user's own withdrawal (VampBridge.claim/claimToken)
-  FEE_SWEEP // protocol-swept tip revenue from the shared Clique signer
-  // address, split three ways with the chain's creator and the runway
-  // treasury (VampBridge.claimSwept) — see docs/ARCHITECTURE.md "Protocol
-  // fee revenue".
-}
-
 /// One row per vampchain, keyed by the registry's on-chain chainId.
 model Chain {
   id Int @id @default(autoincrement())
@@ -87,37 +79,31 @@ model Chain {
   flyAppName String?
   rpcUrl     String? // internal (Fly 6PN) RPC URL, e.g. http://<app>.internal:8545
 
-  /// Running EIP-1559 base-fee-burn accounting for this chain — see
-  /// docs/ARCHITECTURE.md "Protocol fee revenue" and VampBridge.claimBurnedFees.
-  /// `cumulativeBaseFeeBurnedNativeWei` is the exact running total of
-  /// `baseFeePerGas * gasUsed` summed over every block up to
-  /// `baseFeeScanBlock`, in native 18-decimal wei — kept as the precise
-  /// source of truth so scaling down to the base token's own raw decimal
-  /// units (`cumulativeBaseFeeBurned`, what the on-chain claim actually
-  /// uses) is always computed fresh from the full total, never compounded
-  /// tick over tick, which would otherwise let per-tick rounding dust add
-  /// up over time. `baseFeeAttestationSignature` is always a signature over
-  /// the *current* `cumulativeBaseFeeBurned`, refreshed whenever it changes
-  /// — infra/rpc-gateway serves it at `/fees/:chainId`.
+  /// Unified protocol fee-revenue accounting for this chain — one
+  /// cumulative counter over BOTH tips and base-fee burn, attested by one
+  /// EIP-712 signature that VampBridge.claimFeeRevenue consumes. See
+  /// docs/ARCHITECTURE.md "Protocol fee revenue". `gasContributionWatcher.ts`
+  /// walks each new block once and accumulates two exact native-18-decimal
+  /// running totals, EXCLUDING protocol-sent transactions (treasury mints
+  /// pay unbacked gas):
+  ///   - `cumulativeBaseFeeBurnedNativeWei`: sum of `baseFeePerGas * gasUsed`
+  ///     (destroyed by the EVM).
+  ///   - `cumulativeTipsNativeWei`: sum of `(effectiveGasPrice - baseFeePerGas)
+  ///     * gasUsed` (accrues at the never-spending Clique signer).
+  /// Both are kept separate purely for display/observability; the SUM is
+  /// what's claimed. `cumulativeFeeRevenue` is that sum scaled down to the
+  /// base token's own raw decimal units — always computed fresh from the
+  /// full native-wei totals, never compounded tick over tick, so per-tick
+  /// rounding dust can't accumulate for low-decimal tokens.
+  /// `feeRevenueAttestationSignature` is a signature over the *current*
+  /// `cumulativeFeeRevenue` as of `feeRevenueAsOfBlock`, refreshed whenever
+  /// the raw figure changes — infra/rpc-gateway serves it at `/fees/:evmChainId`.
   cumulativeBaseFeeBurnedNativeWei String    @default("0")
-  cumulativeBaseFeeBurned          String    @default("0")
-  baseFeeScanBlock                 BigInt    @default(0)
-  baseFeeAttestedAt                DateTime?
-  baseFeeAttestationSignature      String?
-
-  /// Same "keep the exact native-wei total, never compound rounding dust"
-  /// discipline as cumulativeBaseFeeBurnedNativeWei above, applied to swept
-  /// tip revenue instead of base-fee burn — see feeSweep.ts/withdrawalWatcher.ts.
-  /// A tip sweep is a real one-shot burn transaction (unlike base-fee burn,
-  /// which is just accounting with nothing to physically move), so each
-  /// sweep's native-wei amount gets added here; a ClaimSwept attestation is
-  /// only ever signed for the portion that converts to a nonzero raw token
-  /// unit, and this field is reset to just the sub-unit remainder each time
-  /// — so a low-decimal base token defers claimable tip revenue across
-  /// multiple sweeps instead of silently stranding it forever (a real bug
-  /// this replaced: the previous design dropped the entire swept amount
-  /// with just a console warning whenever a single sweep rounded to zero).
-  unclaimedSweptNativeWei String @default("0")
+  cumulativeTipsNativeWei          String    @default("0")
+  cumulativeFeeRevenue             String    @default("0")
+  feeRevenueAsOfBlock              BigInt    @default(0)
+  feeRevenueAttestedAt             DateTime?
+  feeRevenueAttestationSignature   String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -194,16 +180,6 @@ model WithdrawalEvent {
   /// withdrawals (VampBridge.claimToken) — see docs/ARCHITECTURE.md
   /// "General ERC20 bridging".
   token String?
-
-  /// USER (default) means this row is a real withdrawal signed for
-  /// `claim`/`claimToken`. FEE_SWEEP means the burn came from the shared
-  /// Clique signer/etherbase address (swept tip revenue) and is signed for
-  /// `claimSwept` instead — see withdrawalWatcher.ts and
-  /// docs/ARCHITECTURE.md "Protocol fee revenue". `to` is meaningless for a
-  /// FEE_SWEEP row (claimSwept ignores it and splits three ways on-chain
-  /// instead — protocol/creator/runway treasury); kept populated anyway
-  /// since it's just whatever address the sweep burn happened to come from.
-  kind WithdrawalKind @default(USER)
 
   signature String? // EIP-712 claim signature, set once the relayer has signed
 

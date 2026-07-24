@@ -1,26 +1,22 @@
 import "server-only";
-import type { Address } from "viem";
-import { prisma } from "@vampchains/db";
 import { getHomePublicClient } from "./viemClients";
 import { BRIDGE_ABI, getHomeChainWebConfig } from "./contracts";
 
-/// Cumulative base-fee revenue this chain has already recaptured and split
-/// three ways between its creator, the protocol treasury, and the runway
-/// treasury (see VampBridge.claimBurnedFees / docs/ARCHITECTURE.md "Protocol fee
+/// Total protocol fee revenue (tips + base-fee burn as one figure) this
+/// chain has already claimed and split three ways between its creator, the
+/// protocol treasury, and the runway treasury (see
+/// VampBridge.claimFeeRevenue / docs/ARCHITECTURE.md "Protocol fee
 /// revenue"). In the base token's own raw decimal units — format with
-/// `formatTokenAmount(amount, baseTokenDecimals)`. This is a live, honest
-/// floor on what a chain has actually earned so far — it doesn't include
-/// swept tip revenue that hasn't been indexed back here yet, so the real
-/// total paid out to a creator is always at least this much. `homeChainId`
-/// picks which home chain's VampBridge to read from.
-export async function getBurnedFeesClaimed(homeChainId: number, chainId: bigint): Promise<bigint> {
+/// `formatTokenAmount(amount, baseTokenDecimals)`. `homeChainId` picks
+/// which home chain's VampBridge to read from.
+export async function getFeeRevenueClaimed(homeChainId: number, chainId: bigint): Promise<bigint> {
   const cfg = getHomeChainWebConfig(homeChainId);
   if (!cfg || !cfg.configured) return 0n;
   try {
     return (await getHomePublicClient(homeChainId).readContract({
       address: cfg.bridgeAddress,
       abi: BRIDGE_ABI,
-      functionName: "burnedFeesClaimed",
+      functionName: "feeRevenueClaimed",
       args: [chainId],
     })) as bigint;
   } catch {
@@ -28,79 +24,47 @@ export async function getBurnedFeesClaimed(homeChainId: number, chainId: bigint)
   }
 }
 
-export interface OutstandingBurnedFees {
-  cumulativeBurned: bigint;
+export interface OutstandingFeeRevenue {
+  cumulativeRevenue: bigint;
   asOfBlock: bigint;
   signature: `0x${string}`;
   outstandingAmount: bigint;
+  /// The two components of the cumulative total, in native 18-decimal wei,
+  /// purely for display ("X in tips + Y in base fee"). Not part of what's
+  /// signed or claimed — the attestation covers the raw-unit sum.
+  tipsNativeWei: bigint;
+  baseFeeNativeWei: bigint;
 }
 
-/// Whether there's currently a real `claimBurnedFees` call worth making for
-/// this chain — combines the relayer's latest signed attestation (already
-/// stored on the Chain row by baseFeeWatcher.ts) with a live
-/// `burnedFeesClaimed` read, since the attestation alone doesn't say
-/// whether it's already been claimed. Returns null if nothing has ever been
-/// signed yet, or if the signed total has already been fully claimed —
-/// both cases mean "nothing to show," not an error.
-export async function getOutstandingBurnedFees(
+/// Whether there's a real `claimFeeRevenue` call worth making for this
+/// chain right now — combines the relayer's latest signed attestation
+/// (stored on the Chain row by gasContributionWatcher.ts) with a live
+/// `feeRevenueClaimed` read, since the attestation alone doesn't say
+/// whether it's already been claimed. One cumulative counter now covers
+/// both tips and base-fee burn, so this is the single source for the whole
+/// claim UI — no more per-sweep pileup. Returns null when nothing has been
+/// signed yet, or the signed total is already fully claimed.
+export async function getOutstandingFeeRevenue(
   homeChainId: number,
   chainId: bigint,
-  dbChain: { cumulativeBaseFeeBurned: string; baseFeeScanBlock: bigint; baseFeeAttestationSignature: string | null }
-): Promise<OutstandingBurnedFees | null> {
-  if (!dbChain.baseFeeAttestationSignature) return null;
-  const cumulativeBurned = BigInt(dbChain.cumulativeBaseFeeBurned);
-  const alreadyClaimed = await getBurnedFeesClaimed(homeChainId, chainId);
-  if (cumulativeBurned <= alreadyClaimed) return null;
+  dbChain: {
+    cumulativeFeeRevenue: string;
+    feeRevenueAsOfBlock: bigint;
+    feeRevenueAttestationSignature: string | null;
+    cumulativeTipsNativeWei: string;
+    cumulativeBaseFeeBurnedNativeWei: string;
+  }
+): Promise<OutstandingFeeRevenue | null> {
+  if (!dbChain.feeRevenueAttestationSignature) return null;
+  const cumulativeRevenue = BigInt(dbChain.cumulativeFeeRevenue);
+  const alreadyClaimed = await getFeeRevenueClaimed(homeChainId, chainId);
+  if (cumulativeRevenue <= alreadyClaimed) return null;
   return {
-    cumulativeBurned,
-    asOfBlock: dbChain.baseFeeScanBlock,
-    signature: dbChain.baseFeeAttestationSignature as `0x${string}`,
-    outstandingAmount: cumulativeBurned - alreadyClaimed,
+    cumulativeRevenue,
+    asOfBlock: dbChain.feeRevenueAsOfBlock,
+    signature: dbChain.feeRevenueAttestationSignature as `0x${string}`,
+    outstandingAmount: cumulativeRevenue - alreadyClaimed,
+    tipsNativeWei: BigInt(dbChain.cumulativeTipsNativeWei),
+    baseFeeNativeWei: BigInt(dbChain.cumulativeBaseFeeBurnedNativeWei),
   };
-}
-
-export interface OutstandingSweepClaim {
-  sidechainTxHash: `0x${string}`;
-  amount: bigint;
-  signature: `0x${string}`;
-}
-
-/// Every signed-but-not-yet-claimed tip-sweep for this chain. Each sweep is
-/// a real, distinct transaction with its own ClaimSwept signature — unlike
-/// the single running burned-fees attestation above, these can pile up as
-/// multiple independent outstanding claims (one per historical sweep). The
-/// `claimed(sidechainTxHash)` mapping on-chain is the only real source of
-/// truth for whether one's been redeemed already — WithdrawalEvent's own
-/// `claimTxHash`/`claimedAt` columns exist but nothing currently writes
-/// them, per the model's docstring, so this checks on-chain directly rather
-/// than trusting those columns.
-export async function getOutstandingSweepClaims(
-  chainDbId: number,
-  homeChainId: number,
-  bridgeAddress: Address
-): Promise<OutstandingSweepClaim[]> {
-  const rows = await prisma.withdrawalEvent.findMany({
-    where: { chainDbId, kind: "FEE_SWEEP", signature: { not: null } },
-  });
-  if (rows.length === 0) return [];
-
-  const client = getHomePublicClient(homeChainId);
-  const claimedFlags = await Promise.all(
-    rows.map((row) =>
-      client.readContract({
-        address: bridgeAddress,
-        abi: BRIDGE_ABI,
-        functionName: "claimed",
-        args: [row.sidechainTxHash as `0x${string}`],
-      }) as Promise<boolean>
-    )
-  );
-
-  return rows
-    .filter((_, i) => !claimedFlags[i])
-    .map((row) => ({
-      sidechainTxHash: row.sidechainTxHash as `0x${string}`,
-      amount: BigInt(row.amount),
-      signature: row.signature as `0x${string}`,
-    }));
 }

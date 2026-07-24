@@ -158,6 +158,10 @@ async function mintWrappedOnSidechain(
     abi: MINT_WRAPPED_ABI,
     functionName: "mintWrapped",
     args: [token, name, symbol, decimals, recipient, amount],
+    // Zero priority fee — same reasoning as the native mint in
+    // depositWatcher.ts: protocol-paid gas must not accrue as claimable
+    // fee revenue at the Clique signer.
+    maxPriorityFeePerGas: 0n,
   });
   await sidePublicClient.waitForTransactionReceipt({ hash });
 

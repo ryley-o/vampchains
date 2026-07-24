@@ -36,11 +36,12 @@ const SNAPSHOT_TYPES = {
 /// Deliberately excludes `treasuryAddress` and `cliqueSignerAddress` from
 /// the snapshot: neither is a user claim. Treasury's balance is working
 /// capital that backs future deposit-mints, not money owed to anyone.
-/// Whatever the signer address holds is unswept protocol fee revenue (see
-/// feeSweep.ts on the relayer) — if it's never swept before the chain
-/// dies, it just becomes part of what `sweepUnclaimed` collects for the
-/// protocol once the snapshot's 30-day claim window elapses, exactly like
-/// any other unclaimed leaf. No special-casing needed for it here.
+/// Whatever the signer address holds is accumulated protocol tip revenue
+/// (see docs/ARCHITECTURE.md "Protocol fee revenue") — if it's never
+/// claimed before the chain dies, it just becomes part of what
+/// `sweepUnclaimed` collects for the protocol once the snapshot's 30-day
+/// claim window elapses, exactly like any other unclaimed leaf. No
+/// special-casing needed for it here.
 ///
 /// Persists one `SnapshotEntitlement` row per real leaf (so the frontend
 /// can look up "does this address have a claim" and fetch its proof, since

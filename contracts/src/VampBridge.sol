@@ -292,134 +292,112 @@ contract VampBridge is Ownable, ReentrancyGuard, EIP712 {
     }
 
     // ---------------------------------------------------------------------
-    // Protocol fee revenue: swept tips + recaptured base-fee burn
+    // Protocol fee revenue: one cumulative counter for tips + base-fee burn
     //
     // Every vampchain's gas fees split into two pieces (see
-    // docs/ARCHITECTURE.md "Why geth Clique PoA"): priority fees (tips) land
-    // as real, spendable native balance at the Clique signer's own address
-    // (`--miner.etherbase`); the EIP-1559 base fee is destroyed outright by
-    // the EVM itself, unconditionally, on every chain. Both are real
-    // protocol-attributable revenue, and both split three ways: the chain's
-    // own creator (`registry.getChain(chainId).creator`, an ongoing reward
-    // for having funded the chain, on top of the one-time creation fee), the
-    // protocol treasury, and a *separate* runway-treasury wallet earmarked
-    // for keeping chains funded — the users actually generating this revenue
+    // docs/ARCHITECTURE.md "Protocol fee revenue"): priority fees (tips)
+    // land as real native balance at the Clique signer's own address
+    // (`--miner.etherbase`), where they simply accumulate forever — the
+    // signer never spends, so its balance is a monotonically-growing
+    // number; the EIP-1559 base fee is destroyed outright by the EVM
+    // itself, so its running total is monotonic by construction. Neither
+    // ever needs to move on the sidechain: both are pure accounting, and
+    // the relayer attests to their SUM as one cumulative figure. (An
+    // earlier design swept tips to the treasury via real sidechain
+    // transactions, each producing its own one-shot claim signature — that
+    // meant unclaimed revenue accumulated as an unbounded pile of
+    // individually-submittable signatures instead of one number. This
+    // replaced it.)
+    //
+    // Why paying out against `lockedBalance` is provably safe: every unit
+    // of native currency on a vampchain is minted 1:1 against
+    // `lockedBalance[chainId]` here. User-paid gas permanently removes
+    // native currency from user circulation (base fee destroyed, tip
+    // stranded at the never-spending signer), but `lockedBalance` doesn't
+    // shrink when that happens — so it exceeds real user-circulating
+    // supply by exactly the cumulative user-paid gas total. Withdrawing
+    // exactly that amount, never more, leaves every remaining holder still
+    // fully backed. (The off-chain accounting deliberately excludes
+    // protocol-sent transactions — treasury mints pay gas from an unbacked
+    // genesis balance, which creates no L1 surplus.)
+    //
+    // The claim splits three ways: the chain's own creator
+    // (`registry.getChain(chainId).creator`, an ongoing reward for having
+    // funded the chain, on top of the one-time creation fee), the protocol
+    // treasury, and a *separate* runway-treasury wallet earmarked for
+    // keeping chains funded — the users actually generating this revenue
     // are the ones bridging into and transacting on a chain in the first
-    // place, and the thing they're risking is the chain dying, so a third of
-    // what their own activity generates goes toward directly preventing
-    // that (see `VampChainRegistry.runwayTreasury`'s docstring for why this
-    // is a distinct address rather than an accounting line item). None of
-    // the three functions below accepts a caller-supplied recipient: every
+    // place, and the thing they're risking is the chain dying, so a third
+    // of what their own activity generates goes toward directly preventing
+    // that (see `VampChainRegistry.runwayTreasury`'s docstring for why
+    // this is a distinct address rather than an accounting line item).
+    // `claimFeeRevenue` accepts no caller-supplied recipient: every
     // address is always read live from the registry, so even a fully
     // compromised signer key can only ever redirect this revenue between
-    // these three fixed parties, never to an arbitrary third party — unlike
-    // `claim`/`claimToken`, which must accept an arbitrary `to` because
-    // that's the whole point of a user withdrawal.
+    // these three fixed parties, never to an arbitrary third party —
+    // unlike `claim`/`claimToken`, which must accept an arbitrary `to`
+    // because that's the whole point of a user withdrawal.
     // ---------------------------------------------------------------------
 
-    /// @notice Cumulative base-fee-burn amount already paid out per chain —
-    /// checked against each new attestation in `claimBurnedFees` so a chain
-    /// can never be paid out more in total than has actually burned.
-    mapping(uint256 => uint256) public burnedFeesClaimed;
+    /// @notice Total fee revenue already paid out per chain — every claim
+    /// pays only the increment of a strictly-larger attested cumulative
+    /// total over this, so no attestation (fresh, stale, or replayed) can
+    /// ever pay the same revenue twice, in any submission order.
+    mapping(uint256 => uint256) public feeRevenueClaimed;
 
-    bytes32 public constant CLAIM_SWEPT_TYPEHASH =
-        keccak256("ClaimSwept(uint256 vampChainId,uint256 amount,bytes32 sidechainTxHash)");
+    bytes32 public constant FEE_REVENUE_TYPEHASH =
+        keccak256("FeeRevenue(uint256 vampChainId,uint256 cumulativeRevenue,uint256 asOfBlock)");
 
-    bytes32 public constant BURNED_FEES_TYPEHASH =
-        keccak256("BurnedFees(uint256 vampChainId,uint256 cumulativeBurned,uint256 asOfBlock)");
-
-    event SweptClaimed(
+    event FeeRevenueClaimed(
         uint256 indexed chainId,
         uint256 toProtocol,
         uint256 toCreator,
         uint256 toRunway,
-        bytes32 indexed sidechainTxHash
-    );
-    event BurnedFeesClaimed(
-        uint256 indexed chainId,
-        uint256 toProtocol,
-        uint256 toCreator,
-        uint256 toRunway,
-        uint256 cumulativeBurned,
+        uint256 cumulativeRevenue,
         uint256 asOfBlock
     );
 
     error NothingToClaim();
 
-    /// @notice Claim `amount` of `chainId`'s base token, split three ways
-    /// between the protocol treasury, the chain's creator, and the runway
-    /// treasury, authorized by an EIP-712 signature attesting to a real
-    /// burn-to-treasury transfer *from the chain's own Clique
-    /// signer/etherbase address* — i.e. swept tip revenue, not a user
-    /// withdrawal. Shares the `claimed` replay guard with `claim`/
-    /// `claimToken` (a tip-sweep burn tx hash can never collide with a
-    /// user's, they're distinct real sidechain transactions). Permissionless
-    /// like every other claim path here: anyone can submit it — most
-    /// naturally an admin script, or the chain's own creator pulling their
-    /// share whenever they like.
-    function claimSwept(uint256 chainId, uint256 amount, bytes32 sidechainTxHash, bytes calldata signature)
-        external
-        nonReentrant
-        whenNotPaused
-        returns (uint256 toProtocol, uint256 toCreator, uint256 toRunway)
-    {
-        if (amount == 0) revert ZeroAmount();
-        if (claimed[sidechainTxHash]) revert AlreadyClaimed();
-        if (lockedBalance[chainId] < amount) revert InsufficientLocked();
-
-        bytes32 structHash = keccak256(abi.encode(CLAIM_SWEPT_TYPEHASH, chainId, amount, sidechainTxHash));
-        address recovered = ECDSA.recoverCalldata(_hashTypedData(structHash), signature);
-        if (recovered != signer) revert InvalidSignature();
-
-        claimed[sidechainTxHash] = true;
-        lockedBalance[chainId] -= amount;
-
-        (toProtocol, toCreator, toRunway) = _payProtocolAndCreator(chainId, amount);
-        emit SweptClaimed(chainId, toProtocol, toCreator, toRunway, sidechainTxHash);
-    }
-
-    /// @notice Claim the protocol's share of `chainId`'s cumulative
-    /// EIP-1559 base-fee burn, split three ways with the creator and the
-    /// runway treasury, authorized by an EIP-712 signature attesting to a
-    /// cumulative burned-fee total as of a given sidechain block. No
-    /// sidechain-side transaction underlies this at all — base fee is
-    /// destroyed outright by the EVM, never sitting in any address — so
-    /// this claims directly against the L1-side surplus that burning
-    /// creates instead: every vampchain's native currency supply is minted
-    /// 1:1 against `lockedBalance[chainId]`, and base-fee burn is the only
-    /// thing that ever destroys that native supply, so `lockedBalance` ends
-    /// up exceeding real circulating (non-treasury) supply by exactly the
-    /// cumulative burn total. Withdrawing exactly that amount, never more,
-    /// leaves every remaining real holder still fully backed 1:1 — provably,
-    /// not merely because the treasury happens to be over-provisioned.
+    /// @notice Claim `chainId`'s accumulated fee revenue — tips + base-fee
+    /// burn as ONE cumulative figure, attested by an EIP-712 signature as
+    /// of a given sidechain block — split three ways between the protocol
+    /// treasury, the chain's creator, and the runway treasury. One
+    /// transaction always claims everything accrued since the last claim,
+    /// no matter how long ago that was: the attestation is a running
+    /// total, not a batch of events, so nothing ever piles up waiting.
     /// Monotonic and idempotent: only ever pays out the *increment* over
-    /// what's already been claimed, so resubmitting a stale (lower-or-equal)
-    /// attestation is a harmless no-op revert rather than a double-pay, and
-    /// the amount actually paid is clamped to `lockedBalance[chainId]` as a
-    /// defensive ceiling against a miscomputed attestation.
-    function claimBurnedFees(uint256 chainId, uint256 cumulativeBurned, uint256 asOfBlock, bytes calldata signature)
+    /// `feeRevenueClaimed[chainId]`, so resubmitting the same attestation,
+    /// or any stale (lower-or-equal) one, is a harmless no-op revert
+    /// rather than a double-pay — replay safety is contract state, not
+    /// submission-order discipline. The amount actually paid is clamped to
+    /// `lockedBalance[chainId]` as a defensive ceiling against a
+    /// miscomputed attestation. Permissionless like every other claim path
+    /// here: anyone can submit it — the payout addresses are fixed by the
+    /// registry regardless of who calls.
+    function claimFeeRevenue(uint256 chainId, uint256 cumulativeRevenue, uint256 asOfBlock, bytes calldata signature)
         external
         nonReentrant
         whenNotPaused
         returns (uint256 toProtocol, uint256 toCreator, uint256 toRunway)
     {
-        uint256 alreadyClaimed = burnedFeesClaimed[chainId];
-        if (cumulativeBurned <= alreadyClaimed) revert NothingToClaim();
+        uint256 alreadyClaimed = feeRevenueClaimed[chainId];
+        if (cumulativeRevenue <= alreadyClaimed) revert NothingToClaim();
 
-        bytes32 structHash = keccak256(abi.encode(BURNED_FEES_TYPEHASH, chainId, cumulativeBurned, asOfBlock));
+        bytes32 structHash = keccak256(abi.encode(FEE_REVENUE_TYPEHASH, chainId, cumulativeRevenue, asOfBlock));
         address recovered = ECDSA.recoverCalldata(_hashTypedData(structHash), signature);
         if (recovered != signer) revert InvalidSignature();
 
-        uint256 amount = cumulativeBurned - alreadyClaimed;
+        uint256 amount = cumulativeRevenue - alreadyClaimed;
         uint256 available = lockedBalance[chainId];
         if (amount > available) amount = available;
         if (amount == 0) revert NothingToClaim();
 
-        burnedFeesClaimed[chainId] = alreadyClaimed + amount;
+        feeRevenueClaimed[chainId] = alreadyClaimed + amount;
         lockedBalance[chainId] -= amount;
 
         (toProtocol, toCreator, toRunway) = _payProtocolAndCreator(chainId, amount);
-        emit BurnedFeesClaimed(chainId, toProtocol, toCreator, toRunway, cumulativeBurned, asOfBlock);
+        emit FeeRevenueClaimed(chainId, toProtocol, toCreator, toRunway, cumulativeRevenue, asOfBlock);
     }
 
     /// @notice Splits `amount` of `chainId`'s base token three ways between

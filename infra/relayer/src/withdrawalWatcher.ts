@@ -3,8 +3,8 @@ import { createPublicClient, getAddress, http } from "viem";
 import type { privateKeyToAccount } from "viem/accounts";
 import type { Chain as ChainRow } from "@vampchains/db";
 import { prisma } from "@vampchains/db";
-import { signClaim, signClaimSwept } from "./eip712.js";
-import { scaleFromNativeUnits, scaleToNativeUnits } from "./units.js";
+import { signClaim } from "./eip712.js";
+import { scaleFromNativeUnits } from "./units.js";
 
 type SigningAccount = ReturnType<typeof privateKeyToAccount>;
 
@@ -16,13 +16,13 @@ type SigningAccount = ReturnType<typeof privateKeyToAccount>;
 /// for why this replaced the original push-based `release()` design.
 ///
 /// A burn *from* the chain's own shared Clique signer/etherbase address
-/// (`cliqueSignerAddress`) is treated as swept protocol fee revenue, not a
-/// user withdrawal — see feeSweep.ts, which is what actually produces these
-/// burns (an admin-triggered `eth_sendTransaction` against the vampchain's
-/// own unlocked signer account). Those get a `ClaimSwept` attestation
-/// instead of a plain `Claim`, split three ways between the protocol
-/// treasury, the chain's creator, and the runway treasury on-chain — see
-/// docs/ARCHITECTURE.md "Protocol fee revenue".
+/// should never happen anymore — the signer accumulates tip revenue and
+/// nothing spends from it (fee revenue is claimed as pure accounting via
+/// VampBridge.claimFeeRevenue, see gasContributionWatcher.ts and
+/// docs/ARCHITECTURE.md "Protocol fee revenue"). If one ever IS seen
+/// (leftover old-design sweep, manual operation), signing a user claim
+/// payable to the signer address would be wrong, so it's loudly skipped
+/// instead.
 ///
 /// Runs even against a chain the registry has since marked inactive —
 /// claim() intentionally doesn't check chain-active status, see
@@ -60,18 +60,15 @@ export async function pollWithdrawals(
     for (const tx of block.transactions) {
       if (typeof tx === "string") continue; // shouldn't happen with includeTransactions: true
       if (tx.to && getAddress(tx.to) === burnAddress && tx.value > 0n) {
-        const isFeeSweep = getAddress(tx.from) === cliqueSignerAddress;
-        await handleBurn(
-          chain,
-          tx.hash,
-          tx.from,
-          tx.value,
-          blockNumber,
-          isFeeSweep,
-          signingAccount,
-          l1ChainId,
-          bridgeAddress
-        );
+        if (getAddress(tx.from) === cliqueSignerAddress) {
+          // See module docstring — never sign a user claim payable to the
+          // protocol's own signer address.
+          console.warn(
+            `[withdrawals] ignoring burn from the Clique signer address on chain ${chain.chainId} (tx ${tx.hash}) — sweeps no longer exist, this should not happen`
+          );
+          continue;
+        }
+        await handleBurn(chain, tx.hash, tx.from, tx.value, blockNumber, signingAccount, l1ChainId, bridgeAddress);
       }
     }
   }
@@ -85,7 +82,6 @@ async function handleBurn(
   from: Address,
   nativeAmount: bigint,
   sidechainBlock: bigint,
-  isFeeSweep: boolean,
   signingAccount: SigningAccount,
   l1ChainId: number,
   bridgeAddress: Address
@@ -93,16 +89,11 @@ async function handleBurn(
   const existing = await prisma.withdrawalEvent.findUnique({ where: { sidechainTxHash } });
   if (existing?.signature) return;
 
-  if (isFeeSweep) {
-    await handleFeeSweepBurn(chain, sidechainTxHash, from, nativeAmount, sidechainBlock, signingAccount, l1ChainId, bridgeAddress);
-    return;
-  }
-
   // A user withdrawal is a one-off, deliberate action on their own funds —
-  // unlike a protocol fee sweep, there's no ongoing per-chain stream to
-  // accumulate this into if it rounds to zero, so this stays a hard drop
-  // (with a clear warning) rather than silently holding their funds
-  // pending some future top-up they didn't ask for.
+  // there's no ongoing per-chain stream to accumulate this into if it
+  // rounds to zero, so this stays a hard drop (with a clear warning)
+  // rather than silently holding their funds pending some future top-up
+  // they didn't ask for.
   const amount = scaleFromNativeUnits(nativeAmount, chain.baseTokenDecimals);
   if (amount === 0n) {
     console.warn(
@@ -127,86 +118,11 @@ async function handleBurn(
       sidechainBlock,
       to: from,
       amount: amount.toString(),
-      kind: "USER",
       signature,
     },
   });
 
   console.log(
     `[withdrawals] signed user claim for ${amount} raw units (from ${from}) on chain ${chain.chainId} (sidechain tx ${sidechainTxHash})`
-  );
-}
-
-/// A fee sweep is a real one-shot burn transaction each time (unlike
-/// base-fee-burn tracking, which is pure accounting with nothing to
-/// physically move — see baseFeeWatcher.ts), so its native-wei amount
-/// might not convert to even 1 raw base-token unit on its own — common for
-/// a low-decimal token against the sweep dust threshold. Rather than
-/// stranding that value forever (the previous behavior: drop it with a
-/// console warning, no way to ever recover it), accumulate it into
-/// `Chain.unclaimedSweptNativeWei` and only sign a `ClaimSwept` once the
-/// cumulative total actually clears one raw unit — same discipline
-/// baseFeeWatcher.ts already uses for base-fee burn. The attestation's
-/// `sidechainTxHash` is always *this* sweep's hash, the one that pushed
-/// the cumulative total over the threshold — VampBridge's `claimed`
-/// mapping is keyed by that hash and each one can only ever be used once,
-/// regardless of how many earlier sweeps contributed dust toward it.
-/// Updating the ledger and creating the claim happen in one transaction —
-/// otherwise a crash between the two could either double-count this
-/// sweep's contribution on retry, or lose it outright.
-async function handleFeeSweepBurn(
-  chain: ChainRow,
-  sidechainTxHash: `0x${string}`,
-  from: Address,
-  nativeAmount: bigint,
-  sidechainBlock: bigint,
-  signingAccount: SigningAccount,
-  l1ChainId: number,
-  bridgeAddress: Address
-) {
-  const newUnclaimedTotal = BigInt(chain.unclaimedSweptNativeWei) + nativeAmount;
-  const amount = scaleFromNativeUnits(newUnclaimedTotal, chain.baseTokenDecimals);
-
-  if (amount === 0n) {
-    await prisma.chain.update({
-      where: { id: chain.id },
-      data: { unclaimedSweptNativeWei: newUnclaimedTotal.toString() },
-    });
-    console.log(
-      `[withdrawals] fee-sweep of ${nativeAmount} native wei on chain ${chain.chainId} still below 1 raw ${chain.baseTokenSymbol} unit (${chain.baseTokenDecimals} decimals) — accumulated to ${newUnclaimedTotal} native wei, deferred to a future sweep`
-    );
-    return;
-  }
-
-  // Only the portion that actually converts is claimed; whatever's left
-  // over (necessarily less than one raw unit) carries forward.
-  const remainder = newUnclaimedTotal - scaleToNativeUnits(amount, chain.baseTokenDecimals);
-
-  const signature = await signClaimSwept(signingAccount, {
-    l1ChainId,
-    bridgeAddress,
-    claim: { vampChainId: chain.chainId, amount, sidechainTxHash },
-  });
-
-  await prisma.$transaction([
-    prisma.chain.update({ where: { id: chain.id }, data: { unclaimedSweptNativeWei: remainder.toString() } }),
-    prisma.withdrawalEvent.upsert({
-      where: { sidechainTxHash },
-      update: { signature },
-      create: {
-        chainDbId: chain.id,
-        chainId: chain.chainId,
-        sidechainTxHash,
-        sidechainBlock,
-        to: from,
-        amount: amount.toString(),
-        kind: "FEE_SWEEP",
-        signature,
-      },
-    }),
-  ]);
-
-  console.log(
-    `[withdrawals] signed swept-fee claim for ${amount} raw units on chain ${chain.chainId} (sidechain tx ${sidechainTxHash}, ${remainder} native wei carried forward)`
   );
 }

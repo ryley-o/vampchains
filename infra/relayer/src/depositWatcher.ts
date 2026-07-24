@@ -139,6 +139,13 @@ async function mintOnSidechain(chain: ChainRow, recipient: Address, nativeAmount
   const walletClient = createWalletClient({ account: treasuryAccount, chain: vampchain, transport: http(chain.rpcUrl) });
   const publicClient = createPublicClient({ chain: vampchain, transport: http(chain.rpcUrl) });
 
-  const hash = await walletClient.sendTransaction({ to: recipient, value: nativeAmount });
+  // Zero priority fee: the treasury mints from an unbacked genesis balance,
+  // so any tip it paid would land at the Clique signer as "revenue" that
+  // isn't backed by real L1 locked funds — see gasContributionWatcher.ts's
+  // fee-revenue accounting, which excludes protocol senders precisely so
+  // this can't inflate the claimable total. Zero-tip mines fine on the
+  // single-signer Clique node (no miner gas-price / txpool price floor set,
+  // see infra/sidechain-node/entrypoint.sh).
+  const hash = await walletClient.sendTransaction({ to: recipient, value: nativeAmount, maxPriorityFeePerGas: 0n });
   await publicClient.waitForTransactionReceipt({ hash });
 }

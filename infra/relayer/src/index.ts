@@ -7,9 +7,7 @@ import { pollDeposits } from "./depositWatcher.js";
 import { pollWithdrawals } from "./withdrawalWatcher.js";
 import { pollGeneralDeposits } from "./generalDepositWatcher.js";
 import { pollGeneralWithdrawals } from "./generalWithdrawalWatcher.js";
-import { trackBurnedFees } from "./baseFeeWatcher.js";
-import { sweepTips } from "./feeSweep.js";
-import { trackGasContributions } from "./gasContributionWatcher.js";
+import { trackChainActivity } from "./gasContributionWatcher.js";
 
 type SigningAccount = ReturnType<typeof privateKeyToAccount>;
 
@@ -58,12 +56,7 @@ async function tickDeposits(runtime: HomeChainRuntime, treasuryAccount: SigningA
 /// directly — but claim-signing still has to happen against whichever home
 /// chain's bridge that specific vampchain was created from, so each pass
 /// looks up the right `HomeChainRuntime` via `chain.homeChainId` first.
-async function tickVampchain(
-  chain: ChainRow,
-  runtimes: Map<number, HomeChainRuntime>,
-  cfg: RelayerConfig,
-  dueForFeeSweep: boolean
-) {
+async function tickVampchain(chain: ChainRow, runtimes: Map<number, HomeChainRuntime>, cfg: RelayerConfig) {
   const home = runtimes.get(chain.homeChainId);
   if (!home) {
     console.warn(
@@ -73,18 +66,6 @@ async function tickVampchain(
   }
   const { config, signingAccount } = home;
 
-  // Sweeping only prepares a claim — someone still has to manually submit
-  // claimSwept() on the home chain to actually move money (no automation or
-  // UI for that exists yet), so there's no benefit to sweeping on the
-  // relayer's tight per-tick cadence. Decoupled to its own slower interval
-  // rather than running every ~20s for no one waiting on it.
-  if (dueForFeeSweep) {
-    try {
-      await sweepTips(chain, cfg.cliqueSignerAddress, cfg.burnAddress, cfg.feeSweepDustThresholdWei);
-    } catch (err) {
-      console.error(`[fee-sweep] failed for chain ${chain.chainId}:`, err);
-    }
-  }
   try {
     await pollWithdrawals(chain, signingAccount, config.homeChainId, config.bridgeAddress, cfg.burnAddress, cfg.cliqueSignerAddress);
   } catch (err) {
@@ -95,19 +76,12 @@ async function tickVampchain(
   } catch (err) {
     console.error(`[general-withdrawals] poll failed for chain ${chain.chainId}:`, err);
   }
-  try {
-    await trackBurnedFees(chain, signingAccount, config.homeChainId, config.bridgeAddress);
-  } catch (err) {
-    console.error(`[base-fee] tracking failed for chain ${chain.chainId}:`, err);
-  }
 }
 
 // Module-scope, not part of RelayerConfig: this is mutable runtime state
-// (when the leaderboard indexer/fee sweep last actually ran), not
-// configuration. A single long-lived process, so no concurrency concerns
-// sharing this.
+// (when the activity walker last actually ran), not configuration. A
+// single long-lived process, so no concurrency concerns sharing this.
 let lastGasContributionRun = 0;
-let lastFeeSweepRun = 0;
 
 async function tick(runtimes: Map<number, HomeChainRuntime>, treasuryAccount: SigningAccount, cfg: RelayerConfig) {
   for (const runtime of runtimes.values()) {
@@ -122,21 +96,29 @@ async function tick(runtimes: Map<number, HomeChainRuntime>, treasuryAccount: Si
     return;
   }
 
-  const dueForFeeSweep = Date.now() - lastFeeSweepRun >= cfg.feeSweepIntervalMs;
-  if (dueForFeeSweep) lastFeeSweepRun = Date.now();
-
   for (const chain of activeChains) {
-    await tickVampchain(chain, runtimes, cfg, dueForFeeSweep);
+    await tickVampchain(chain, runtimes, cfg);
   }
 
   const dueForGasContribution = Date.now() - lastGasContributionRun >= cfg.gasContributionIntervalMs;
   if (dueForGasContribution) {
     lastGasContributionRun = Date.now();
     for (const chain of activeChains) {
+      // Fee-revenue attestations are per home chain — skip chains whose
+      // home chain isn't configured here, same as tickVampchain does.
+      const home = runtimes.get(chain.homeChainId);
+      if (!home) continue;
       try {
-        await trackGasContributions(chain);
+        await trackChainActivity(
+          chain,
+          treasuryAccount.address,
+          cfg.cliqueSignerAddress,
+          home.signingAccount,
+          home.config.homeChainId,
+          home.config.bridgeAddress
+        );
       } catch (err) {
-        console.error(`[gas-contribution] failed for chain ${chain.chainId}:`, err);
+        console.error(`[activity] failed for chain ${chain.chainId}:`, err);
       }
     }
   }

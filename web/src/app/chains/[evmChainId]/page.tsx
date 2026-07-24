@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@vampchains/db";
 import { getOnchainChain, getProtocolTreasury, getRemainingRuntime, getRunwayTreasury } from "@/lib/registryReads";
-import { getBurnedFeesClaimed, getOutstandingBurnedFees, getOutstandingSweepClaims } from "@/lib/bridgeReads";
+import { getFeeRevenueClaimed, getOutstandingFeeRevenue } from "@/lib/bridgeReads";
 import { formatTokenAmount, formatUsdc, shortAddress } from "@/lib/format";
 import { GATEWAY_URL, getHomeChainWebConfig } from "@/lib/contracts";
 import { StatusPill } from "@/components/StatusPill";
@@ -88,26 +88,22 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ev
   const homeConfig = getHomeChainWebConfig(homeChainId);
   const contractsConfigured = !!homeConfig?.configured;
 
-  const [onchain, remainingRuntime, wrappedTokenRows, burnedFeesClaimed, runwayTreasury, protocolTreasury] =
+  const [onchain, remainingRuntime, wrappedTokenRows, feeRevenueClaimed, runwayTreasury, protocolTreasury] =
     await Promise.all([
       getOnchainChain(homeChainId, chainId),
       getRemainingRuntime(homeChainId, chainId),
       prisma.wrappedToken.findMany({ where: { chainDbId: dbChain.id }, orderBy: { createdAt: "asc" } }),
-      getBurnedFeesClaimed(homeChainId, chainId),
+      getFeeRevenueClaimed(homeChainId, chainId),
       getRunwayTreasury(homeChainId),
       getProtocolTreasury(homeChainId),
     ]);
 
   // Only worth fetching once we know contracts are configured for this
-  // home chain and this specific bridge address is known — ClaimFeesPanel
-  // itself decides visibility client-side, but there's no point computing
-  // this server-side for an unconfigured home chain.
-  const [outstandingBurnedFees, outstandingSweepClaims] = contractsConfigured
-    ? await Promise.all([
-        getOutstandingBurnedFees(homeChainId, chainId, dbChain),
-        getOutstandingSweepClaims(dbChain.id, homeChainId, homeConfig!.bridgeAddress),
-      ])
-    : [null, []];
+  // home chain — ClaimFeesPanel itself decides visibility client-side, but
+  // there's no point computing this server-side for an unconfigured chain.
+  const outstandingFeeRevenue = contractsConfigured
+    ? await getOutstandingFeeRevenue(homeChainId, chainId, dbChain)
+    : null;
 
   const wrappedTokens = wrappedTokenRows.map((w) => ({
     l1Token: w.l1Token as `0x${string}`,
@@ -198,11 +194,11 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ev
                 this chain&apos;s own runway — automatically, for as long as it&apos;s running.
               </p>
               <p className="mt-1 text-xs text-bone-dim/40">
-                Base-fee revenue recaptured so far (floor — swept tip revenue adds to this too).
+                Total fee revenue (tips + base fee) claimed and paid out so far.
               </p>
             </div>
             <p className="font-mono text-2xl text-emerald-300">
-              {formatTokenAmount(burnedFeesClaimed, dbChain.baseTokenDecimals)}{" "}
+              {formatTokenAmount(feeRevenueClaimed, dbChain.baseTokenDecimals)}{" "}
               <span className="text-sm text-bone-dim/50">${dbChain.symbol}</span>
             </p>
           </div>
@@ -219,8 +215,7 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ev
           chainId={chainId}
           baseTokenSymbol={dbChain.baseTokenSymbol}
           baseTokenDecimals={dbChain.baseTokenDecimals}
-          outstandingBurnedFees={outstandingBurnedFees}
-          outstandingSweepClaims={outstandingSweepClaims}
+          outstanding={outstandingFeeRevenue}
         />
       )}
 

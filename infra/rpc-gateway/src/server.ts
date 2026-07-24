@@ -92,16 +92,10 @@ export function createGatewayServer(config: GatewayConfig) {
           // set to the L1 token address for a general-bridged wrapped
           // token — see docs/ARCHITECTURE.md "General ERC20 bridging".
           // The frontend uses this to decide whether to call
-          // VampBridge.claim() or .claimToken().
+          // VampBridge.claim() or .claimToken(). (There is no longer any
+          // protocol-fee variant here — fee revenue is claimed separately
+          // via claimFeeRevenue, served at /fees/:evmChainId.)
           token: withdrawal.token,
-          // USER (the common case) means submit `to`/`amount`/`signature`
-          // to claim()/claimToken() as normal. FEE_SWEEP means this is
-          // protocol-swept fee revenue: submit the same fields to
-          // claimSwept() instead (no `token` path exists for this kind),
-          // which ignores `to` and splits three ways between the protocol
-          // treasury, the chain's creator, and the runway treasury
-          // on-chain — see docs/ARCHITECTURE.md "Protocol fee revenue".
-          kind: withdrawal.kind,
           to: withdrawal.to,
           amount: withdrawal.amount,
           sidechainTxHash: withdrawal.sidechainTxHash,
@@ -124,7 +118,7 @@ export function createGatewayServer(config: GatewayConfig) {
       const evmChainId = BigInt(feesMatch[1]!);
       const chain = await prisma.chain.findUnique({ where: { evmChainId } });
 
-      if (!chain || !chain.baseFeeAttestationSignature || !chain.baseFeeAttestedAt) {
+      if (!chain || !chain.feeRevenueAttestationSignature || !chain.feeRevenueAttestedAt) {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ status: "pending" }));
         return;
@@ -135,16 +129,17 @@ export function createGatewayServer(config: GatewayConfig) {
         JSON.stringify({
           status: "ready",
           evmChainId: chain.evmChainId.toString(),
-          // The cumulative EIP-1559 base-fee burn attested as of
-          // `asOfBlock`, in the base token's own raw decimal units — submit
-          // together with `signature` to VampBridge.claimBurnedFees(), which
-          // only ever pays out the increment over what's already been
-          // claimed and splits it three ways with the chain's creator and
+          // The cumulative protocol fee revenue (tips + base-fee burn as
+          // one figure) attested as of `asOfBlock`, in the base token's own
+          // raw decimal units — submit together with `signature` to
+          // VampBridge.claimFeeRevenue(), which only ever pays out the
+          // increment over what's already been claimed and splits it three
+          // ways between the protocol treasury, the chain's creator, and
           // the runway treasury. See docs/ARCHITECTURE.md "Protocol fee
           // revenue".
-          cumulativeBurned: chain.cumulativeBaseFeeBurned,
-          asOfBlock: chain.baseFeeScanBlock.toString(),
-          signature: chain.baseFeeAttestationSignature,
+          cumulativeRevenue: chain.cumulativeFeeRevenue,
+          asOfBlock: chain.feeRevenueAsOfBlock.toString(),
+          signature: chain.feeRevenueAttestationSignature,
         })
       );
       return;

@@ -27,11 +27,11 @@ function TwoRevenueStreamsDiagram() {
         </div>
         <div className="mt-3 flex items-center justify-between text-xs text-bone-dim/60">
           <span>Every transaction</span>
-          <span>Pools at the chain&apos;s wallet</span>
+          <span>Piles up at the chain&apos;s wallet</span>
         </div>
         <p className="mt-4 text-sm text-bone-dim/70">
-          A small tip on top of every transaction accrues as real balance. Every so often it&apos;s
-          swept out and becomes claimable.
+          A small tip on top of every transaction lands as real balance and just accumulates
+          there — nothing ever has to move. We keep an exact running count.
         </p>
       </div>
 
@@ -52,8 +52,7 @@ function TwoRevenueStreamsDiagram() {
         </div>
         <p className="mt-4 text-sm text-bone-dim/70">
           The rest of the gas fee is destroyed outright — standard Ethereum rules. Nothing sits
-          anywhere to sweep, but we keep an exact running count of it, and that count is what
-          becomes claimable.
+          anywhere, but we keep an exact running count of it too.
         </p>
       </div>
     </div>
@@ -91,35 +90,32 @@ function SplitDiagram() {
 
 function TimelineDiagram() {
   return (
-    <div className="space-y-6 rounded-2xl border border-hairline bg-ink-raised p-5 sm:p-6">
-      <div>
+    <div className="rounded-2xl border border-hairline bg-ink-raised p-5 sm:p-6">
+      <div className="flex items-center justify-between gap-3">
         <p className="flex items-center gap-2 font-mono text-xs uppercase tracking-[0.2em] text-emerald-300">
           <Dot className="bg-emerald-300" /> Tips
         </p>
-        <div className="relative mt-4 h-px bg-hairline-strong">
-          <span className="absolute left-[15%] top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-emerald-300/60" />
-          <span className="absolute left-[45%] top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-emerald-300/60" />
-          <span className="absolute left-[75%] top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-emerald-300/60" />
-          <span className="animate-marker-pulse absolute right-0 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-blood" />
-        </div>
-        <p className="mt-2 text-xs text-bone-dim/50">
-          Accrues continuously, swept roughly every 24 hours (each sweep, its own claimable
-          signature) → claimable any time after.
+        <p className="flex items-center gap-2 font-mono text-xs uppercase tracking-[0.2em] text-blood-bright">
+          Base fee <Dot className="bg-blood-bright" />
         </p>
       </div>
 
-      <div>
-        <p className="flex items-center gap-2 font-mono text-xs uppercase tracking-[0.2em] text-blood-bright">
-          <Dot className="bg-blood-bright" /> Base fee
-        </p>
-        <div className="relative mt-4 h-1 overflow-hidden rounded-full bg-charcoal-soft">
-          <div className="animate-grow-x h-full w-full bg-blood-bright/70" style={{ animationDuration: "3.5s" }} />
-        </div>
-        <p className="mt-2 text-xs text-bone-dim/50">
-          Burns continuously, running total re-signed whenever it grows (one signature, always the
-          latest) → claimable any time.
-        </p>
+      {/* Both streams flow into one growing bar — a single running total. */}
+      <div className="relative mt-4 h-1.5 overflow-hidden rounded-full bg-charcoal-soft">
+        <div className="animate-grow-x h-full w-full bg-gradient-to-r from-emerald-300 to-blood-bright" />
+        <span className="animate-marker-pulse absolute right-0 top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-blood" />
       </div>
+      <div className="mt-3 flex items-center justify-between text-xs text-bone-dim/60">
+        <span>Every transaction, forever</span>
+        <span>One running total</span>
+      </div>
+
+      <p className="mt-4 text-sm text-bone-dim/70">
+        Both add into a single cumulative number that only ever grows. Whenever it grows we sign a
+        fresh receipt of the new total — the previous one instantly worthless. So no matter how long
+        you wait, one transaction claims everything, and no old receipt can ever be reused to claim
+        twice.
+      </p>
     </div>
   );
 }
@@ -155,7 +151,12 @@ export default function HowFeesWorkPage() {
         </p>
       </Section>
 
-      <Section eyebrow="Timing" title="When it becomes claimable">
+      <Section eyebrow="One counter, one claim" title="It all adds into a single number">
+        <p>
+          Here&apos;s the part that makes this simple: both kinds of revenue feed one running total
+          that only ever grows. You never chase individual payments or race a deadline — claim after
+          a day or after a year, it&apos;s always exactly one transaction for everything owed.
+        </p>
         <TimelineDiagram />
       </Section>
 
