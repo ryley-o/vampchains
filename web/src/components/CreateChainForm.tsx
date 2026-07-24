@@ -160,7 +160,7 @@ export function CreateChainForm() {
           ))}
         </div>
         <p className="mt-1.5 text-xs text-bone-dim/50">
-          Your token must already exist on this chain — this is where the annual fee gets paid and
+          Your token must already exist on this chain — this is where the fee gets paid and
           where you&apos;ll bridge {derivedSymbol ?? "it"} in from.
         </p>
       </div>
