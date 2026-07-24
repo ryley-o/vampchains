@@ -348,6 +348,27 @@ Real issues hit deploying this one, worth knowing about:
   binaries.soliditylang.org — any other version is still fetched on
   demand at request time.
 
+- **A Prisma schema migration means redeploying EVERY app that bundles the
+  Prisma client — including `scan/`, which is its own separate Vercel
+  project.** Each app ships a Prisma client generated against the schema at
+  *its* build time, and Prisma emits explicit column lists in its SQL
+  (`SELECT "col1", "col2", …`), not `SELECT *`. So the moment a migration
+  drops or renames a column, any already-deployed app whose bundled client
+  still references the old column starts 500-ing on every query that
+  touches that table — even if that app never used the changed column
+  directly (a bare `prisma.chain.findUnique` selects *all* Chain columns).
+  Hit live: the unified-fee-revenue migration dropped several `Chain`
+  columns; `web` and the Fly services were redeployed as part of that work,
+  but `scan.vampchain.com` was not, and it went to a hard 500 on its
+  landing page (which does `prisma.chain.findMany`) until redeployed. The
+  fix is just a redeploy (the build's `postinstall` runs `prisma generate`
+  against the current schema). **Checklist after any migration: redeploy
+  `web`, `scan` (separate `vampchains-scan` Vercel project — deploy from
+  repo root with the root re-linked to it via `vercel link --project
+  vampchains-scan`, since its Root Directory is `scan/`), and every Fly
+  service that imports `@vampchains/db` (relayer, provisioner, rpc-gateway,
+  verifier).**
+
 ### Root-caused a stuck relayer, then applied the fix to every `tsx`-based service
 
 `vampchains-relayer` (256MB, shared-cpu-1x — one shared instance for the

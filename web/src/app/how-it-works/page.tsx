@@ -140,12 +140,15 @@ export default async function HowItWorksPage() {
           This is on top of the annual fee, not instead of it — the fee covers our
           infrastructure; the split is the ongoing reward for growing a chain.
         </p>
-        <p className="text-xs text-bone-dim/40">
-          Want the full mechanics — how the tip and the burn actually get claimed, and when?{" "}
-          <Link href="/how-fees-work" className="underline underline-offset-2 hover:text-bone-dim/70">
+        <p>
+          Curious how the revenue actually adds up and gets claimed?{" "}
+          <Link
+            href="/how-fees-work"
+            className="font-semibold text-blood-bright underline underline-offset-4 hover:text-blood"
+          >
             See how fees work
-          </Link>
-          .
+          </Link>{" "}
+          — with an interactive walkthrough.
         </p>
       </Section>
 
@@ -214,6 +217,12 @@ export default async function HowItWorksPage() {
           className="rounded-full bg-blood px-7 py-3.5 text-sm font-semibold uppercase tracking-wider text-bone shadow-[0_0_40px_rgba(226,45,58,0.35)] transition-all hover:scale-105 hover:bg-blood-bright active:scale-95"
         >
           Create your chain
+        </Link>
+        <Link
+          href="/how-fees-work"
+          className="rounded-full border border-hairline-strong px-7 py-3.5 text-sm font-semibold text-bone-dim transition-colors hover:border-bone-dim hover:text-bone"
+        >
+          How fees work
         </Link>
         <Link
           href="/claim"
