@@ -100,6 +100,19 @@ export default async function HowItWorksPage() {
           real: real RPC, real blocks, real transactions, usually live well under a minute after payment.
         </p>
         <p>
+          Every chain also gets its own page on{" "}
+          <a
+            href="https://scan.vampchain.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-bone underline underline-offset-2 hover:text-blood-bright"
+          >
+            scan.vampchain.com
+          </a>
+          , our block explorer — live blocks and transactions, address lookups, and contract
+          verification with source viewing, the same tools you&apos;d expect on any real chain.
+        </p>
+        <p>
           Your funding drains linearly, and it&apos;s fully public — anyone can top up a chain&apos;s runway, not
           just its creator. Nobody, including us, can charge for time not yet served. A low entry point (a couple
           weeks, not a year) is the whole idea: try a chain for your token without committing much.

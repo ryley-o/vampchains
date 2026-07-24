@@ -10,7 +10,6 @@ import { TokenLogo } from "@/components/TokenLogo";
 import { BridgeForm } from "@/components/BridgeForm";
 import { GeneralBridgeForm } from "@/components/GeneralBridgeForm";
 import { TopUpForm } from "@/components/TopUpForm";
-import { ExplorerPanel } from "@/components/ExplorerPanel";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { AddToWalletButton } from "@/components/AddToWalletButton";
 import { BloodDonorsPanel } from "@/components/BloodDonorsPanel";
@@ -149,6 +148,8 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ev
           )}
           <a
             href={`https://scan.vampchain.com/${dbChain.evmChainId}`}
+            target="_blank"
+            rel="noopener noreferrer"
             className="text-xs text-bone-dim/50 underline underline-offset-2 hover:text-bone-dim"
           >
             View on Vampscan →
@@ -285,8 +286,19 @@ export default async function ChainDetailPage({ params }: { params: Promise<{ ev
 
       {isActive && (
         <Panel title="Explorer" eyebrow="Live activity">
-          <p className="-mt-2 mb-5 truncate font-mono text-xs text-bone-dim/40">RPC: {gatewayRpcUrl}</p>
-          <ExplorerPanel rpcUrl={gatewayRpcUrl} symbol={dbChain.baseTokenSymbol} />
+          <p className="truncate font-mono text-xs text-bone-dim/40">RPC: {gatewayRpcUrl}</p>
+          <p className="mt-3 text-sm text-bone-dim/60">
+            Every block, transaction, and address on this chain — plus contract verification and
+            source viewing — lives on Vampscan, our block explorer.
+          </p>
+          <a
+            href={`https://scan.vampchain.com/${dbChain.evmChainId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-5 inline-block rounded-full bg-blood px-6 py-2.5 text-sm font-semibold uppercase tracking-wider text-bone transition-colors hover:bg-blood-bright"
+          >
+            Open Vampscan →
+          </a>
         </Panel>
       )}
 

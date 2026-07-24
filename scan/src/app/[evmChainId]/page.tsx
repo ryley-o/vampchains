@@ -50,6 +50,8 @@ export default async function ChainOverviewPage({ params }: { params: Promise<{ 
         </Link>
         <a
           href={`https://www.vampchain.com/chains/${evmChainIdParam}`}
+          target="_blank"
+          rel="noopener noreferrer"
           className="text-bone-dim/60 hover:text-blood-bright"
         >
           Manage / bridge on vampchain.com →
